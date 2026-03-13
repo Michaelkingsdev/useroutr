@@ -81,13 +81,27 @@ export function Footer({ onWaitlistClick }: FooterProps) {
       duration: 0.8, 
       stagger: 0.05, 
       ease: "power3.out" 
-    }, "-=0.8")
-    .to(".footer-signature", { 
-      opacity: 0.1, 
-      letterSpacing: "0.02em", 
-      duration: 2.5, 
-      ease: "power2.out" 
-    }, "-=1");
+    }, "-=0.8");
+
+    // Independent ScrollTrigger for the big signature to expand as you scroll down
+    gsap.fromTo(".footer-signature", 
+      { 
+        letterSpacing: "-0.1em",
+        opacity: 0,
+        filter: "blur(10px)"
+      },
+      {
+        letterSpacing: "0.05em",
+        opacity: 0.9,
+        filter: "blur(0px)",
+        scrollTrigger: {
+          trigger: ".footer-signature",
+          start: "top 95%",
+          end: "bottom bottom",
+          scrub: 1.5,
+        }
+      }
+    );
 
     // Magnetic effect for social links
     const socials = gsap.utils.toArray<HTMLElement>(".social-magnetic");
@@ -117,7 +131,7 @@ export function Footer({ onWaitlistClick }: FooterProps) {
           {/* Main Brand Block */}
           <div className="lg:col-span-4 footer-block">
             <Link href="/" className="inline-block mb-10 opacity-90 hover:opacity-100 transition-opacity">
-              <Image src="/logo.svg" alt="Tavvio" width={110} height={32} className="w-auto h-7" />
+              <Image src="/logo.svg" alt="Useroutr" width={110} height={32} className="w-auto h-7" />
             </Link>
             <p className="font-sans text-sm text-zinc-600 font-light leading-relaxed max-w-sm mb-12">
               Architecting the future of multi-chain atomic settlement. Optimized for institutional scale, built on open-source rails.
@@ -211,7 +225,7 @@ export function Footer({ onWaitlistClick }: FooterProps) {
             </div>
             
             <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-100 flex items-center gap-4">
-              <span>© 2026 THIRTN</span>
+              <span>© 2026 USEROUTR</span>
               <span className="w-1 h-1 rounded-full bg-zinc-900" />
               <span>TERMINAL_01</span>
             </div>
@@ -246,7 +260,7 @@ export function Footer({ onWaitlistClick }: FooterProps) {
             WebkitTextFillColor: "transparent",
           }}
         >
-          ROUTR
+          USEROUTR
         </h2>
       </div>
     </footer>

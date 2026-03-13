@@ -73,7 +73,7 @@ const products = [
   },
   {
     title: "White Label Infrastructure",
-    description: "The entire Tavvio stack under your brand. Dedicated liquidity pools and custom compliance modules.",
+    description: "The entire Useroutr stack under your brand. Dedicated liquidity pools and custom compliance modules.",
     icon: Palette,
     tag: "Enterprise",
     span: "md:col-span-2 lg:col-span-1",
@@ -146,9 +146,9 @@ function ProductCard({ p, i }: { p: Product, i: number }) {
 const codeSnippets = [
   {
     title: "integrate_payments.ts",
-    code: `import { Tavvio } from "@tavvio/sdk";
+    code: `import { Useroutr } from "@useroutr/sdk";
 
-const client = new Tavvio({
+const client = new Useroutr({
   apiKey: process.env.TAVVIO_KEY,
 });
 
@@ -168,7 +168,7 @@ redirect(payment.checkoutUrl);`
   },
   {
     title: "hosted_checkout.tsx",
-    code: `import { Checkout } from "@tavvio/react";
+    code: `import { Checkout } from "@useroutr/react";
 
 export default function App() {
   return (
@@ -189,10 +189,10 @@ export default function App() {
   {
     title: "webhooks.ts",
     code: `// Verify and handle events
-app.post("/webhooks/tavvio", async (req, res) => {
+app.post("/webhooks/useroutr", async (req, res) => {
   const event = client.webhooks.constructEvent(
     req.body,
-    req.headers["tavvio-signature"],
+    req.headers["useroutr-signature"],
     process.env.WEBHOOK_SECRET
   );
 
@@ -237,7 +237,7 @@ export default function Home() {
         <div className="flex items-center justify-between w-full max-w-[1200px] mx-auto">
           <a href="#" className="flex items-center gap-2.5 no-underline group">
             <div className="w-[26px] h-[26px] bg-linear-to-br from-blue to-teal [clip-path:polygon(50%_0%,100%_38%,82%_100%,18%_100%,0%_38%)] group-hover:scale-110 transition-transform" />
-            <span className="font-display text-[17px] font-bold text-lead tracking-tight">tavvio</span>
+            <span className="font-display text-[17px] font-bold text-lead tracking-tight">useroutr</span>
           </a>
           
           <ul className="hidden md:flex items-center gap-7 list-none">
@@ -411,14 +411,14 @@ export default function Home() {
               </ul>
             </div>
             <div className="bg-ink2 p-10 md:p-14">
-              <span className="font-mono text-[11px] tracking-[0.08em] uppercase px-2.5 py-1 rounded-[5px] bg-teal/10 text-teal border border-teal/20 inline-block mb-6">With Tavvio</span>
+              <span className="font-mono text-[11px] tracking-[0.08em] uppercase px-2.5 py-1 rounded-[5px] bg-teal/10 text-teal border border-teal/20 inline-block mb-6">With Useroutr</span>
               <h3 className="font-display text-[26px] font-bold tracking-tight text-white mb-4 leading-tight">One integration.<br />Every payment.</h3>
-              <p className="font-serif font-light text-[15px] text-body leading-relaxed mb-8">Tavvio collapses the entire stack into a single SDK and API. Accept cards, bank transfers, and crypto from any chain. Pay out to any wallet, bank, or mobile money network in 174 countries. All settled through Stellar in seconds.</p>
+              <p className="font-serif font-light text-[15px] text-body leading-relaxed mb-8">Useroutr collapses the entire stack into a single SDK and API. Accept cards, bank transfers, and crypto from any chain. Pay out to any wallet, bank, or mobile money network in 174 countries. All settled through Stellar in seconds.</p>
               <ul className="space-y-3 font-serif font-light text-[15px] text-lead list-none">
                 {[
                   "Single API covering every payment type",
                   "Fiat compliance through MoneyGram — globally licensed",
-                  "Non-custodial: contracts hold funds, not Tavvio",
+                  "Non-custodial: contracts hold funds, not Useroutr",
                   "Crypto invisible to your customers",
                   "Real-time settlement at sub-cent fees"
                 ].map((li: string) => (
@@ -454,7 +454,7 @@ export default function Home() {
               {
                 n: "01",
                 t: "Checkout Initiation",
-                d: "Customer connects their wallet or selects card/bank. Tavvio detects the optimal chain and asset path automatically.",
+                d: "Customer connects their wallet or selects card/bank. Useroutr detects the optimal chain and asset path automatically.",
                 tech: ["EVM", "Solana", "Stellar"],
                 icon: "💳"
               },
@@ -555,7 +555,7 @@ export default function Home() {
                 <span className="text-lead italic font-light drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]">designed for payments</span>
               </h2>
               <p className="font-serif font-light text-[20px] text-body leading-relaxed mb-12">
-                Most infrastructure bolts crypto onto fiat, or fiat onto crypto. Tavvio is built natively where they intersect — on a blockchain that has processed real-world fiat flows for a decade.
+                Most infrastructure bolts crypto onto fiat, or fiat onto crypto. Useroutr is built natively where they intersect — on a blockchain that has processed real-world fiat flows for a decade.
               </p>
               
               <div className="grid grid-cols-2 gap-4">
@@ -587,7 +587,7 @@ export default function Home() {
                 },
                 {
                   t: "Regulated anchor network",
-                  d: "Licensed money service businesses with established fiat rails across 174 countries. Tavvio plugs into this network on day one.",
+                  d: "Licensed money service businesses with established fiat rails across 174 countries. Useroutr plugs into this network on day one.",
                   i: "🏦"
                 },
                 {
@@ -854,7 +854,7 @@ export default function Home() {
                 </ul>
 
                 <a 
-                  href={plan.isContact ? "mailto:enterprise@tavio.io" : "#waitlist"}
+                  href={plan.isContact ? "mailto:enterprise@useroutr.io" : "#waitlist"}
                   className={cn(
                     "block w-full text-center py-4 rounded-xl font-display text-[14px] font-bold transition-all",
                     plan.primary 
@@ -904,7 +904,7 @@ export default function Home() {
           <div>
             <div className="flex items-center gap-2.5 mb-6">
               <div className="w-[26px] h-[26px] bg-linear-to-br from-blue to-teal [clip-path:polygon(50%_0%,100%_38%,82%_100%,18%_100%,0%_38%)]" />
-              <span className="font-display text-[17px] font-bold text-lead tracking-tight">tavvio</span>
+              <span className="font-display text-[17px] font-bold text-lead tracking-tight">useroutr</span>
             </div>
             <p className="font-serif font-light text-[14px] text-body leading-relaxed max-w-[240px]">
               The payment layer for the future. Built non-custodial on the Stellar network.
@@ -928,7 +928,7 @@ export default function Home() {
         </div>
         
         <div className="max-w-[1200px] mx-auto pt-8 border-t border-rule flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="font-mono text-[12px] text-faint">© 2026 Tavvio Inc. · All rights reserved.</div>
+          <div className="font-mono text-[12px] text-faint">© 2026 Useroutr Inc. · All rights reserved.</div>
           <div className="flex items-center gap-1.5 font-mono text-[12px] text-faint">
             Made with <span className="text-red">♥</span> for the global economy.
           </div>

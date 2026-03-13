@@ -14,7 +14,15 @@ import { PricingSection } from "@/components/PricingSection";
 import { Footer } from "@/components/Footer";
 import { WaitlistModal } from "@/components/WaitlistModal";
 
-gsap.registerPlugin(useGSAP, ScrollTrigger, ScrollSmoother);
+import { ConnectivitySection } from "@/components/ConnectivitySection";
+import { Simulator } from "@/components/Simulator";
+import { MotionPathPlugin } from "gsap/MotionPathPlugin";
+
+import { TerminalPreview } from "@/components/TerminalPreview";
+import { CustomCursor } from "@/components/CustomCursor";
+import { SoundSystem } from "@/components/SoundSystem";
+
+gsap.registerPlugin(useGSAP, ScrollTrigger, ScrollSmoother, MotionPathPlugin);
 
 export default function Home() {
   const main = useRef<HTMLDivElement>(null);
@@ -53,14 +61,35 @@ export default function Home() {
 
   return (
     <>
+      <CustomCursor />
+      <SoundSystem />
       <Navbar />
       <div id="smooth-wrapper" ref={main}>
         <div id="smooth-content" className="pt-20">
-          <Hero onWaitlistClick={() => setIsWaitlistOpen(true)} />
-          <ProductsSection />
-          <InfrastructureSection />
-          <CodeSection />
-          <PricingSection onWaitlistClick={() => setIsWaitlistOpen(true)} />
+          <div data-speed="1.1">
+            <Hero onWaitlistClick={() => setIsWaitlistOpen(true)} />
+          </div>
+          <div data-speed="0.95">
+            <ProductsSection />
+          </div>
+          <div data-speed="1.2">
+             <InfrastructureSection />
+          </div>
+          <div data-speed="1.1">
+             <ConnectivitySection />
+          </div>
+          <div data-speed="1.0">
+            <Simulator />
+          </div>
+          <div data-speed="1.15">
+            <CodeSection />
+          </div>
+          <div data-speed="0.9">
+            <PricingSection onWaitlistClick={() => setIsWaitlistOpen(true)} />
+          </div>
+          <div data-speed="1.1">
+            <TerminalPreview />
+          </div>
           <Footer onWaitlistClick={() => setIsWaitlistOpen(true)} />
         </div>
       </div>

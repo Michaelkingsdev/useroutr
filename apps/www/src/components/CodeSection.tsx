@@ -23,10 +23,10 @@ const codeSnippets = [
     id: "checkout",
     title: "checkout.ts",
     icon: ShieldCheck,
-    code: `import { TavioCheckout } from "@tavio/sdk";
+    code: `import { UseroutrCheckout } from "@useroutr/sdk";
 
-const checkout = new TavioCheckout({
-  apiKey: "tv_live_root_xxxxxxxx",
+const checkout = new UseroutrCheckout({
+  apiKey: "uo_live_root_xxxxxxxx",
   amount: 5000, // in cents
   currency: "USD",
   settlementAsset: "USDC", // Settle in stablecoins
@@ -71,10 +71,10 @@ checkout.open();`
     id: "invoicing",
     title: "invoicing.ts",
     icon: Cpu,
-    code: `import { TavioInvoicing } from "@tavio/sdk";
+    code: `import { UseroutrInvoicing } from "@useroutr/sdk";
 
 // Issue professional cross-border invoice
-const invoice = await TavioInvoicing.create({
+const invoice = await UseroutrInvoicing.create({
   customer: "cust_9921",
   items: [
     { description: "Liquidity Provision", amount: 500000 }
@@ -216,7 +216,7 @@ export function CodeSection() {
                       <div className="w-2.5 h-2.5 rounded-full bg-zinc-800" />
                     </div>
                     <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/5 rounded text-[11px] font-mono text-zinc-500 whitespace-nowrap">
-                      @tavvio/sdk <ChevronRight size={10} /> {codeSnippets[activeTab].title}
+                      @useroutr/sdk <ChevronRight size={10} /> {codeSnippets[activeTab].title}
                     </div>
                   </div>
                   
@@ -257,7 +257,7 @@ export function CodeSection() {
                     <span className="flex items-center gap-2"><span className="w-1 hs rounded-full bg-zinc-800" /> TypeScript</span>
                   </div>
                   <div className="flex gap-4">
-                    <span className="text-zinc-800">TAVVIO_ENGINE_v4.2</span>
+                    <span className="text-zinc-800">USEROUTR_ENGINE_v4.2</span>
                   </div>
                 </div>
               </div>

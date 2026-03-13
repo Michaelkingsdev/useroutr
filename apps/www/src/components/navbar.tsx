@@ -85,7 +85,7 @@ const Navbar = () => {
           <div id='navbar-container' className="flex items-center justify-between w-full max-w-7xl h-20 mx-auto px-6 md:px-10">
             {/* Logo */}
             <Link href="/" className="relative z-20">
-              <Image src="/logo.svg" alt='Tavvio' width={110} height={32} className="w-auto h-7 md:h-8" />
+              <Image src="/logo.svg" alt='Useroutr' width={110} height={32} className="w-auto h-7 md:h-8" />
             </Link>
 
             {/* Desktop Navigation */}

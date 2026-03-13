@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Syne, Newsreader, JetBrains_Mono } from "next/font/google";
 import { cn } from "@/lib/utils";
-import Navbar from "@/components/navbar";
+import { StructuredData } from "@/components/StructuredData";
 
 const syne = Syne({
   subsets: ["latin"],
@@ -24,9 +24,64 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tavvio — Pay anything. Settle everywhere.",
+  title: "Useroutr — The Institutional Payment Protocol for Universal Asset Finality",
   description:
-    "The payment infrastructure built for both sides of finance. Accept any currency from any chain. Settle globally in seconds. Built on Stellar.",
+    "Institutional payment infrastructure for cross-chain asset finality. Accept any currency from any chain and settle globally in seconds with Useroutr's atomic gateway.",
+  keywords: [
+    "Institutional Payments",
+    "Cross-chain Settlement",
+    "Stellar Anchor Network",
+    "Atomic Finality",
+    "Payment Gateway",
+    "Blockchain Infrastructure",
+    "Useroutr Protocol"
+  ],
+  authors: [{ name: "Useroutr Labs" }],
+  creator: "Useroutr Labs",
+  publisher: "Useroutr Labs",
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
+  metadataBase: new URL("https://useroutr.com"),
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "Useroutr — Pay anything. Settle everywhere.",
+    description: "The payment infrastructure built for both sides of finance. Accept any currency from any chain. Settle globally in seconds.",
+    url: "https://useroutr.com",
+    siteName: "Useroutr",
+    images: [
+      {
+        url: "/og-image.jpg", // Placeholder - the user should add a real high-res image
+        width: 1200,
+        height: 630,
+        alt: "Useroutr Protocol Overview",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Useroutr — Institutional Asset Finality",
+    description: "High-throughput payment protocol for universal asset finality and atomic settlement.",
+    creator: "@useroutr",
+    images: ["/twitter-image.jpg"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
 };
 
 export default function RootLayout({
@@ -45,6 +100,7 @@ export default function RootLayout({
       )} 
     >
       <body className="antialiased">
+        <StructuredData />
         {children}
       </body>
     </html>
