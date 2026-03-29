@@ -106,7 +106,10 @@ model Payment {
   destTxHash     String?
   // HTLC fields
   hashlock       String? // sha256 of secret
+  htlcSecret     String? // encrypted secret
   secretRevealed Boolean        @default(false)
+  // Idempotency
+  idempotencyKey String?        @unique
   // Metadata
   metadata       Json?
   refundedAt     DateTime?
