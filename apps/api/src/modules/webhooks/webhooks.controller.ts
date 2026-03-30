@@ -1,16 +1,20 @@
 import {
-  Controller,
-  Post,
-  Get,
-  Patch,
-  Param,
+  BadRequestException,
   Body,
-  UseGuards,
+  Controller,
+  Get,
+  Headers,
   HttpCode,
   HttpStatus,
-  Query,
   NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentMerchant } from '../merchant/decorators/current-merchant.decorator';
 import { WebhooksService } from './webhooks.service';
@@ -19,6 +23,9 @@ import {
   UpdateWebhookDto,
   WebhookLogFiltersDto,
 } from './dto';
+import { PaymentsService } from '../payments/payments.service.js';
+
+type RawBodyRequest = Request & { rawBody?: Buffer };
 
 @Controller('v1/webhooks')
 export class WebhooksController {
@@ -104,5 +111,26 @@ export class WebhooksController {
     await this.webhooksService.retryEvent(eventId);
 
     return { success: true, message: 'Webhook retry enqueued' };
+  }
+}
+
+@Controller('webhooks')
+export class StripeWebhooksController {
+  constructor(private readonly paymentsService: PaymentsService) {}
+
+  @Post('stripe')
+  async handleStripeWebhook(
+    @Headers('stripe-signature') signature: string | undefined,
+    @Req() request: RawBodyRequest,
+  ) {
+    if (!request.rawBody) {
+      throw new BadRequestException(
+        'Stripe webhook signature verification requires the raw request body.',
+      );
+    }
+
+    await this.paymentsService.handleStripeWebhook(signature, request.rawBody);
+
+    return { received: true };
   }
 }

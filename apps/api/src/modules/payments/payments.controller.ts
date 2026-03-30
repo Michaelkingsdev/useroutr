@@ -9,6 +9,7 @@ import {
   Header,
   StreamableFile,
   Req,
+  Logger,
   Headers,
 } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
@@ -22,6 +23,8 @@ import { CombinedAuthGuard } from '../../common/guards/combined-auth.guard';
 
 @Controller('v1')
 export class PaymentsController {
+  private readonly logger = new Logger(PaymentsController.name);
+
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Post('payments')
@@ -75,6 +78,11 @@ export class PaymentsController {
     return this.paymentsService.initiateRefund(body.paymentId);
   }
 
+  @Post('payments/:id/card-session')
+  createCardSession(@Param('id') paymentId: string) {
+    return this.paymentsService.createCardSession(paymentId);
+  }
+
   @Post('payments/:id/bank-session')
   async getOrCreateBankSession(@Param('id') id: string) {
     return this.paymentsService.getOrCreateBankSession(id);
@@ -97,5 +105,15 @@ export class PaymentsController {
   ) {
     this.paymentsService.verifyBankWebhookSecret(secret);
     return this.paymentsService.handleBankTransferNotice(body);
+  }
+}
+
+@Controller()
+export class CheckoutPaymentsController {
+  constructor(private readonly paymentsService: PaymentsService) {}
+
+  @Get('checkout/:paymentId')
+  getCheckoutPayment(@Param('paymentId') paymentId: string) {
+    return this.paymentsService.getCheckoutPayment(paymentId);
   }
 }
