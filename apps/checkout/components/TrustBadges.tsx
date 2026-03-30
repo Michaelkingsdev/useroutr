@@ -1,4 +1,6 @@
-import { ShieldCheck, Lock, Lightning } from "@phosphor-icons/react/dist/ssr";
+"use client";
+
+import { ShieldCheck, Lock, Lightning } from "@phosphor-icons/react";
 
 export function TrustBadges() {
   return (
@@ -23,7 +25,7 @@ export function TrustBadges() {
       <p className="text-center text-xs text-muted-foreground/60">
         Powered by{" "}
         <span className="font-display font-semibold text-muted-foreground">
-          Tavvio
+          Useroutr
         </span>
       </p>
     </div>

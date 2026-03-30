@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { RedisModule } from '@nestjs-modules/ioredis';
 import { BullModule } from '@nestjs/bullmq';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './modules/auth/auth.module';
-import { EventsGateway } from './modules/events/events/events.gateway';
+import { EventsModule } from './modules/events/events.module';
 import { StellarModule } from './modules/stellar/stellar.module';
 import { MerchantModule } from './modules/merchant/merchant.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -25,8 +26,12 @@ import { IdempotencyInterceptor } from './common/interceptors/idempotency.interc
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     PrismaModule,
     AuthModule,
+    EventsModule,
     RedisModule.forRoot({
       type: 'single',
       url: process.env.REDIS_URL,
@@ -36,7 +41,7 @@ import { IdempotencyInterceptor } from './common/interceptors/idempotency.interc
         url: process.env.REDIS_URL,
       },
     }),
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+
     ThrottlerModule.forRoot([
       {
         name: 'default',
@@ -71,10 +76,9 @@ import { IdempotencyInterceptor } from './common/interceptors/idempotency.interc
   controllers: [AppController],
   providers: [
     AppService,
-    EventsGateway,
     {
       provide: APP_GUARD,
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+
       useClass: ThrottlerGuard,
     },
     {
