@@ -4,6 +4,7 @@ import {
   BridgeInResult,
   BridgeOutParams,
   BridgeOutResult,
+  Chain,
   CompleteSourceLockParams,
 } from '@tavvio/types';
 import { WormholeService } from './providers/wormhole.service';
@@ -139,19 +140,20 @@ export class BridgeRouterService {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- stub until EVM HTLC contract integration
   async completeSourceLock(params: CompleteSourceLockParams): Promise<string> {
-    const { chain, lockId, preimage } = params;
-    // In a real implementation, this would call the withdraw() function on the EVM HTLC contract
-    // linked to the specific chain.
+    const { chain, lockId } = params;
+    // TODO: call withdraw() on the EVM HTLC contract for the specific chain
     return `tx_hash_for_unlocking_${lockId}_on_${chain}`;
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await -- stub until EVM HTLC contract integration
   async refundSourceLock(params: {
-    chain: any;
+    chain: Chain;
     lockId: string;
   }): Promise<string> {
     const { chain, lockId } = params;
-    // Implementation would call refund() on EVM HTLC contract
+    // TODO: call refund() on EVM HTLC contract
     return `tx_hash_for_refunding_${lockId}_on_${chain}`;
   }
 

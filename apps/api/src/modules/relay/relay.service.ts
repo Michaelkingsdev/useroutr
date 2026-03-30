@@ -4,19 +4,37 @@ import { Queue } from 'bullmq';
 import { ethers } from 'ethers';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
+import { PaymentStatus } from '@prisma/client';
+import { Chain, SourceLockEvent } from '@tavvio/types';
 import { StellarService } from '../stellar/stellar.service';
 import { PaymentsService } from '../payments/payments.service';
 import { BridgeRouterService } from '../bridge/bridge-router.service';
-import { Chain, SourceLockEvent } from '@tavvio/types';
-import { PaymentStatus } from '../../generated/prisma';
+
+/** Soroban HTLC contract event shape */
+interface StellarHTLCEvent {
+  type: 'Locked' | 'Withdrawn' | 'Refunded';
+  lock_id: string;
+  preimage: string;
+}
+
+const EVM_CHAINS: Chain[] = [
+  'ethereum',
+  'base',
+  'polygon',
+  'arbitrum',
+  'avalanche',
+];
+
+const HTLC_LOCKED_ABI = [
+  'event Locked(bytes32 indexed lockId, address indexed sender, address indexed receiver, uint256 amount, bytes32 hashlock, uint256 timelock, address token)',
+];
+
+const DEFAULT_BACKOFF = { type: 'exponential' as const, delay: 1000 };
+const MAX_RECONNECT_DELAY_MS = 60_000;
 
 @Injectable()
 export class RelayService implements OnModuleInit {
   private readonly logger = new Logger(RelayService.name);
-  private readonly DEFAULT_BACKOFF = {
-    type: 'exponential',
-    delay: 1000,
-  };
 
   constructor(
     @InjectQueue('relay') private readonly relayQueue: Queue,
@@ -26,49 +44,28 @@ export class RelayService implements OnModuleInit {
     private readonly bridgeRouter: BridgeRouterService,
   ) {}
 
-  private async getProcessedBlock(chain: string): Promise<number> {
-    const block = await this.redis.get(`last_processed_block:${chain}`);
-    return block ? parseInt(block, 10) : 0;
-  }
-
-  private async setProcessedBlock(
-    chain: string,
-    blockAt: number,
-  ): Promise<void> {
-    await this.redis.set(`last_processed_block:${chain}`, blockAt.toString());
-  }
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   async onModuleInit() {
     this.logger.log('RelayService initializing...');
 
-    // Watch Stellar HTLC events
     this.watchStellarHTLC();
 
-    // Start watching supported EVM chains
-    const evmChains: Chain[] = [
-      'ethereum',
-      'base',
-      'polygon',
-      'arbitrum',
-      'avalanche',
-    ];
-    for (const chain of evmChains) {
-      this.watchSourceChain(chain);
+    for (const chain of EVM_CHAINS) {
+      this.startChainWatcher(chain);
     }
 
-    // Schedule expired lock watchdog every 60s
     await this.relayQueue.add(
       'watchExpired',
       {},
-      {
-        repeat: { every: 60_000 },
-        jobId: 'watchExpired',
-      },
+      { repeat: { every: 60_000 }, jobId: 'watchExpired' },
     );
   }
 
-  private async watchStellarHTLC(): Promise<void> {
-    const htlcContractId = process.env.STELLAR_HTLC_CONTRACT_ID || '';
+  // ── Stellar watcher ────────────────────────────────────────────────────────
+
+  private watchStellarHTLC(): void {
+    const htlcContractId = process.env.STELLAR_HTLC_CONTRACT_ID ?? '';
     if (!htlcContractId) {
       this.logger.warn(
         'STELLAR_HTLC_CONTRACT_ID not set, skipping Stellar watcher',
@@ -76,17 +73,22 @@ export class RelayService implements OnModuleInit {
       return;
     }
 
-    this.stellarService.streamContractEvents(htlcContractId, async (event) => {
-      if (event.type === 'Withdrawn') {
-        await this.handleStellarWithdrawal({
-          lockId: event.lock_id,
-          preimage: event.preimage,
-        });
-      }
-    });
+    this.stellarService.streamContractEvents(
+      htlcContractId,
+      (event: StellarHTLCEvent) => {
+        if (event.type === 'Withdrawn') {
+          this.handleStellarWithdrawal({
+            lockId: event.lock_id,
+            preimage: event.preimage,
+          }).catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.error(`Stellar withdrawal handler failed: ${msg}`);
+          });
+        }
+      },
+    );
   }
 
-  // Detected on-chain secret reveal
   private async handleStellarWithdrawal(event: {
     lockId: string;
     preimage: string;
@@ -96,28 +98,22 @@ export class RelayService implements OnModuleInit {
     const payment = await this.paymentsService.findByStellarLockId(
       event.lockId,
     );
-    if (!payment) {
-      this.logger.warn(`No payment found for Stellar lock ${event.lockId}`);
-      return;
-    }
-
-    // Already completed?
-    if (payment.status === PaymentStatus.COMPLETED) return;
+    if (!payment || payment.status === PaymentStatus.COMPLETED) return;
 
     await this.relayQueue.add(
       'completeSourceUnlock',
-      {
-        paymentId: payment.id,
-        preimage: event.preimage,
-      },
-      {
-        attempts: 10,
-        backoff: this.DEFAULT_BACKOFF,
-      },
+      { paymentId: payment.id, preimage: event.preimage },
+      { attempts: 10, backoff: DEFAULT_BACKOFF },
     );
   }
 
-  private async watchSourceChain(chain: Chain): Promise<void> {
+  // ── EVM watcher with auto-reconnect ────────────────────────────────────────
+
+  /**
+   * Starts the chain watcher with automatic reconnection on failure.
+   * Uses exponential backoff capped at MAX_RECONNECT_DELAY_MS.
+   */
+  private startChainWatcher(chain: Chain, attempt = 0): void {
     const rpcUrl = process.env[`RPC_URL_${chain.toUpperCase()}`];
     const htlcAddress = process.env[`HTLC_ADDRESS_${chain.toUpperCase()}`];
 
@@ -128,115 +124,142 @@ export class RelayService implements OnModuleInit {
       return;
     }
 
+    this.watchSourceChain(chain, rpcUrl, htlcAddress)
+      .then(() => {
+        if (attempt > 0) {
+          this.logger.log(`Reconnected to ${chain} after ${attempt} retries`);
+        }
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        const delay = Math.min(1000 * 2 ** attempt, MAX_RECONNECT_DELAY_MS);
+        this.logger.error(
+          `EVM watcher failed for ${chain}: ${msg}. Retrying in ${delay}ms...`,
+        );
+        setTimeout(() => this.startChainWatcher(chain, attempt + 1), delay);
+      });
+  }
+
+  private async watchSourceChain(
+    chain: Chain,
+    rpcUrl: string,
+    htlcAddress: string,
+  ): Promise<void> {
     this.logger.log(`Watching EVM chain: ${chain} at ${htlcAddress}`);
 
-    try {
-      const provider = new ethers.JsonRpcProvider(rpcUrl);
-      const htlc = new ethers.Contract(
-        htlcAddress,
-        [
-          'event Locked(bytes32 indexed lockId, address indexed sender, address indexed receiver, uint256 amount, bytes32 hashlock, uint256 timelock, address token)',
-        ],
-        provider,
-      );
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const htlc = new ethers.Contract(htlcAddress, HTLC_LOCKED_ABI, provider);
 
-      const lastBlock = await this.getProcessedBlock(chain);
-      const currentBlock = await provider.getBlockNumber();
+    await this.replayMissedEvents(chain, htlc, provider);
 
-      if (lastBlock > 0 && lastBlock < currentBlock) {
-        this.logger.log(
-          `Scanning ${chain} for missed events from block ${lastBlock} to ${currentBlock}`,
-        );
-        const query = htlc.filters.Locked();
-        const events = await htlc.queryFilter(
-          query,
-          lastBlock + 1,
-          currentBlock,
-        );
-
-        for (const event of events as any[]) {
-          if (event.args) {
-            const [
-              lockId,
-              sender,
-              receiver,
-              amount,
-              hashlock,
-              timelock,
-              token,
-            ] = event.args;
-            await this.handleSourceLock({
-              lockId,
-              sender,
-              receiver,
-              amount,
-              hashlock,
-              timelock: Number(timelock),
-              token,
-              chain,
-            });
-          }
-        }
-      }
-      await this.setProcessedBlock(chain, currentBlock);
-
-      htlc.on(
-        'Locked',
-        async (
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- htlc.on() returns Contract, not a Promise
+    htlc.on(
+      'Locked',
+      (
+        lockId: string,
+        sender: string,
+        receiver: string,
+        amount: bigint,
+        hashlock: string,
+        timelock: bigint,
+        token: string,
+        event: ethers.ContractEventPayload,
+      ) => {
+        this.handleSourceLock({
           lockId,
           sender,
           receiver,
           amount,
           hashlock,
-          timelock,
+          timelock: Number(timelock),
           token,
-          event,
-        ) => {
-          await this.handleSourceLock({
-            lockId,
-            sender,
-            receiver,
-            amount,
-            hashlock,
-            timelock: Number(timelock),
-            token,
-            chain,
+          chain,
+        })
+          .then(() => this.setProcessedBlock(chain, event.log.blockNumber))
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.error(
+              `Failed to handle Locked event on ${chain}: ${msg}`,
+            );
           });
-          await this.setProcessedBlock(chain, event.log.blockNumber);
-        },
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Failed to watch ${chain}: ${message}`);
-    }
+      },
+    );
   }
+
+  private async replayMissedEvents(
+    chain: Chain,
+    htlc: ethers.Contract,
+    provider: ethers.JsonRpcProvider,
+  ): Promise<void> {
+    const lastBlock = await this.getProcessedBlock(chain);
+    const currentBlock = await provider.getBlockNumber();
+
+    if (lastBlock > 0 && lastBlock < currentBlock) {
+      this.logger.log(
+        `Scanning ${chain} for missed events from block ${lastBlock} to ${currentBlock}`,
+      );
+
+      const events = await htlc.queryFilter(
+        htlc.filters.Locked(),
+        lastBlock + 1,
+        currentBlock,
+      );
+
+      for (const evt of events) {
+        const log = evt as ethers.EventLog;
+        if (!log.args) continue;
+
+        const [lockId, sender, receiver, amount, hashlock, timelock, token] =
+          log.args as unknown as [
+            string,
+            string,
+            string,
+            bigint,
+            string,
+            bigint,
+            string,
+          ];
+
+        await this.handleSourceLock({
+          lockId,
+          sender,
+          receiver,
+          amount,
+          hashlock,
+          timelock: Number(timelock),
+          token,
+          chain,
+        });
+      }
+    }
+
+    await this.setProcessedBlock(chain, currentBlock);
+  }
+
+  // ── Event handlers ─────────────────────────────────────────────────────────
 
   private async handleSourceLock(event: SourceLockEvent): Promise<void> {
     this.logger.log(`Detected source lock: ${event.lockId} on ${event.chain}`);
 
     const payment = await this.paymentsService.handleSourceLock(event);
-    if (payment) {
-      await this.relayQueue.add(
-        'completeStellarLock',
-        { paymentId: payment.id },
-        {
-          attempts: 10,
-          backoff: this.DEFAULT_BACKOFF,
-        },
-      );
-    }
+    if (!payment) return;
+
+    await this.relayQueue.add(
+      'completeStellarLock',
+      { paymentId: payment.id },
+      { attempts: 10, backoff: DEFAULT_BACKOFF },
+    );
   }
+
+  // ── Watchdog ───────────────────────────────────────────────────────────────
 
   async processExpiredLocks(): Promise<void> {
     this.logger.log('Checking for expired locks...');
-    // findExpiredPending identified payments that timed out in PENDING status
-    // but here we need to find payments that are locked but never completed
     const expiredPayments = await this.paymentsService.findExpiredLocked();
 
     for (const payment of expiredPayments) {
       this.logger.log(`Refunding expired payment: ${payment.id}`);
 
-      // 1. Refund Stellar side
       if (payment.stellarLockId) {
         try {
           await this.stellarService.refundHTLC(payment.stellarLockId);
@@ -247,21 +270,37 @@ export class RelayService implements OnModuleInit {
         }
       }
 
-      // 2. Refund Source side (EVM)
       if (payment.sourceLockId) {
         try {
           await this.bridgeRouter.refundSourceLock({
-            chain: payment.sourceChain as any,
+            chain: payment.sourceChain as Chain,
             lockId: payment.sourceLockId,
           });
         } catch (err) {
           this.logger.error(
-            `Failed to refund Source lock ${payment.sourceLockId}: ${err instanceof Error ? err.message : String(err)}`,
+            `Failed to refund source lock ${payment.sourceLockId}: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
 
-      await this.paymentsService.updateStatus(payment.id, PaymentStatus.FAILED);
+      await this.paymentsService.updateStatus(
+        payment.id,
+        PaymentStatus.REFUNDED,
+      );
     }
+  }
+
+  // ── Redis cursor ───────────────────────────────────────────────────────────
+
+  private async getProcessedBlock(chain: string): Promise<number> {
+    const block = await this.redis.get(`relay:last_block:${chain}`);
+    return block ? parseInt(block, 10) : 0;
+  }
+
+  private async setProcessedBlock(
+    chain: string,
+    blockNumber: number,
+  ): Promise<void> {
+    await this.redis.set(`relay:last_block:${chain}`, blockNumber.toString());
   }
 }

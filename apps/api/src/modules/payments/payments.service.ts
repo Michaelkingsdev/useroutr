@@ -1,6 +1,12 @@
-import { Injectable, Logger, NotFoundException, ConflictException, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ConflictException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PaymentStatus, Payment } from '@prisma/client';
+import { PaymentStatus, Payment, Prisma } from '@prisma/client';
 import { EventsGateway } from '../events/events/events.gateway';
 import { QuotesService } from '../quotes/quotes.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
@@ -14,7 +20,8 @@ import * as crypto from 'crypto';
 @Injectable()
 export class PaymentsService implements OnModuleInit {
   private readonly logger = new Logger(PaymentsService.name);
-  private readonly CHECKOUT_URL = process.env.CHECKOUT_URL || 'https://checkout.useroutr.io';
+  private readonly CHECKOUT_URL =
+    process.env.CHECKOUT_URL || 'https://checkout.useroutr.io';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -22,19 +29,18 @@ export class PaymentsService implements OnModuleInit {
     private readonly quotesService: QuotesService,
     private readonly webhooksService: WebhooksService,
     private readonly stellarService: StellarService,
-  ) { }
+  ) {}
 
   async getById(id: string): Promise<Payment> {
     const payment = await this.prisma.payment.findUnique({
       where: { id },
     });
     if (!payment) throw new NotFoundException(`Payment ${id} not found`);
-    return payment as any;
+    return payment;
   }
 
-  // Backwards compat
   async findById(id: string): Promise<Payment | null> {
-    return this.prisma.payment.findUnique({ where: { id } }) as any;
+    return await this.prisma.payment.findUnique({ where: { id } });
   }
 
   async handleSourceLock(event: SourceLockEvent): Promise<Payment | null> {
@@ -74,46 +80,51 @@ export class PaymentsService implements OnModuleInit {
         .emit('payment.updated', updatedPayment);
     }
 
-    return updatedPayment as any;
+    return updatedPayment;
   }
 
   async updateStatus(
     id: string,
     status: PaymentStatus,
-    extra: Partial<Payment> = {},
+    extra: Prisma.PaymentUncheckedUpdateInput = {},
   ): Promise<Payment> {
     this.logger.log(`Updating payment ${id} status to ${status}`);
 
-    const data: any = {
-      status,
-      ...extra,
-    };
-
-    if (status === PaymentStatus.COMPLETED) {
-      data.completedAt = new Date();
-    }
-
     const updatedPayment = await this.prisma.payment.update({
       where: { id },
-      data,
+      data: {
+        status,
+        ...extra,
+        ...(status === PaymentStatus.COMPLETED
+          ? { completedAt: new Date() }
+          : {}),
+      },
     });
 
     if (this.eventsGateway.server) {
       this.eventsGateway.server.to(id).emit('payment.updated', updatedPayment);
     }
 
-    return updatedPayment as any;
+    // Dispatch webhook for status change
+    await this.webhooksService.dispatch(
+      updatedPayment.merchantId,
+      `payment.${status.toLowerCase()}`,
+      updatedPayment,
+      updatedPayment.id,
+    );
+
+    return updatedPayment;
   }
 
   async findByStellarLockId(stellarLockId: string): Promise<Payment | null> {
-    return this.prisma.payment.findFirst({
+    return await this.prisma.payment.findFirst({
       where: { stellarLockId },
-    }) as any;
+    });
   }
 
   async findExpiredLocked(): Promise<Payment[]> {
     const now = new Date();
-    return this.prisma.payment.findMany({
+    return await this.prisma.payment.findMany({
       where: {
         status: {
           in: [PaymentStatus.SOURCE_LOCKED, PaymentStatus.STELLAR_LOCKED],
@@ -127,31 +138,41 @@ export class PaymentsService implements OnModuleInit {
           },
         ],
       },
-    }) as any;
+    });
   }
 
-  async onModuleInit() {
+  onModuleInit() {
     this.logger.log('PaymentsService initialized. Starting expiry monitor.');
     // Simple interval-based expiry check as fallback for missing Scheduler
-    setInterval(() => this.processExpiredPending(), 60_000);
+    setInterval(() => void this.processExpiredPending(), 60_000);
   }
 
   async processExpiredPending() {
     try {
       const expired = await this.findExpiredPending();
       if (expired.length > 0) {
-        this.logger.log(`Found ${expired.length} expired pending payments. Marking as EXPIRED.`);
+        this.logger.log(
+          `Found ${expired.length} expired pending payments. Marking as EXPIRED.`,
+        );
         for (const p of expired) {
           await this.updateStatus(p.id, PaymentStatus.EXPIRED);
         }
       }
     } catch (err) {
-      this.logger.error(`Failed to process expired payments: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(
+        `Failed to process expired payments: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
-  async create(merchantId: string, dto: CreatePaymentDto, idempotencyKey?: string): Promise<PaymentResponseDto> {
-    this.logger.log(`Creating payment for merchant ${merchantId} with quote ${dto.quoteId}`);
+  async create(
+    merchantId: string,
+    dto: CreatePaymentDto,
+    idempotencyKey?: string,
+  ): Promise<PaymentResponseDto> {
+    this.logger.log(
+      `Creating payment for merchant ${merchantId} with quote ${dto.quoteId}`,
+    );
 
     // Idempotency check
     if (idempotencyKey) {
@@ -159,7 +180,9 @@ export class PaymentsService implements OnModuleInit {
         where: { idempotencyKey },
       });
       if (existing) {
-        this.logger.log(`Returning existing payment for idempotency key: ${idempotencyKey}`);
+        this.logger.log(
+          `Returning existing payment for idempotency key: ${idempotencyKey}`,
+        );
         return this.formatPaymentResponse(existing);
       }
     }
@@ -194,7 +217,7 @@ export class PaymentsService implements OnModuleInit {
         hashlock,
         htlcSecret: secretHex,
         idempotencyKey,
-        metadata: (dto.metadata as any) || {},
+        metadata: (dto.metadata as Prisma.InputJsonValue) ?? {},
       },
     });
 
@@ -217,47 +240,19 @@ export class PaymentsService implements OnModuleInit {
     };
   }
 
-  async updateStatus(paymentId: string, status: PaymentStatus, extra?: Record<string, unknown>): Promise<Payment> {
-    this.logger.log(`Updating payment ${paymentId} status to ${status}`);
-
-    const payment = await this.prisma.payment.update({
-      where: { id: paymentId },
-      data: {
-        status,
-        ...extra,
-        ...(status === PaymentStatus.COMPLETED ? { completedAt: new Date() } : {}),
-      } as any,
-    });
-
-    // Emit WebSocket event
-    if (this.eventsGateway.server) {
-      this.eventsGateway.server.to(payment.id).emit('payment.updated', payment);
-    }
-
-    // Dispatch webhook
-    await this.webhooksService.dispatch(
-      payment.merchantId,
-      `payment.${status.toLowerCase()}`,
-      payment,
-      payment.id
-    );
-
-    return payment;
-  }
-
-  async getById(paymentId: string): Promise<Payment> {
-    const payment = await this.prisma.payment.findUnique({
-      where: { id: paymentId },
-      include: { merchant: true, quote: true },
-    });
-    if (!payment) throw new NotFoundException('Payment not found');
-    return payment;
-  }
-
   async getByMerchant(merchantId: string, filters: PaymentFiltersDto) {
     const {
-      page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc',
-      status, search, from, to, currency, minAmount, maxAmount
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      status,
+      search,
+      from,
+      to,
+      currency,
+      minAmount,
+      maxAmount,
     } = filters;
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -279,9 +274,7 @@ export class PaymentsService implements OnModuleInit {
     }
 
     if (search) {
-      where.OR = [
-        { id: { contains: search, mode: 'insensitive' } },
-      ];
+      where.OR = [{ id: { contains: search, mode: 'insensitive' } }];
     }
 
     const [items, total] = await Promise.all([
@@ -305,12 +298,6 @@ export class PaymentsService implements OnModuleInit {
     };
   }
 
-  async findByStellarLockId(lockId: string) {
-    return this.prisma.payment.findFirst({
-      where: { stellarLockId: lockId },
-    });
-  }
-
   async findBySourceLockId(lockId: string) {
     return this.prisma.payment.findFirst({
       where: { sourceLockId: lockId },
@@ -325,18 +312,6 @@ export class PaymentsService implements OnModuleInit {
         createdAt: { lt: thirtyMinAgo },
       },
     });
-  }
-
-  async handleSourceLock(paymentId: string, sourceTxHash: string, sourceLockId: string) {
-    const payment = await this.getById(paymentId);
-    if (payment.status !== PaymentStatus.PENDING) return;
-
-    await this.updateStatus(paymentId, PaymentStatus.SOURCE_LOCKED, {
-      sourceTxHash,
-      sourceLockId,
-    });
-
-    await this.lockOnStellar(paymentId);
   }
 
   async lockOnStellar(paymentId: string) {
@@ -357,7 +332,9 @@ export class PaymentsService implements OnModuleInit {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Stellar lock failed for payment ${paymentId}: ${message}`);
+      this.logger.error(
+        `Stellar lock failed for payment ${paymentId}: ${message}`,
+      );
       await this.updateStatus(paymentId, PaymentStatus.FAILED);
     }
   }
@@ -373,20 +350,33 @@ export class PaymentsService implements OnModuleInit {
       PaymentStatus.SOURCE_LOCKED,
       PaymentStatus.STELLAR_LOCKED,
       PaymentStatus.PROCESSING,
-      PaymentStatus.COMPLETED
+      PaymentStatus.COMPLETED,
     ];
 
     if (!refundableStatuses.includes(payment.status)) {
-      throw new ConflictException(`Payment in status ${payment.status} cannot be refunded`);
+      throw new ConflictException(
+        `Payment in status ${payment.status} cannot be refunded`,
+      );
     }
 
     return this.updateStatus(paymentId, PaymentStatus.REFUNDING);
   }
 
-  async exportTransactions(merchantId: string, filters: PaymentFiltersDto): Promise<Buffer> {
-    const { items } = await this.getByMerchant(merchantId, { ...filters, limit: 1000 });
+  async exportTransactions(
+    merchantId: string,
+    filters: PaymentFiltersDto,
+  ): Promise<Buffer> {
+    const { items } = await this.getByMerchant(merchantId, {
+      ...filters,
+      limit: 1000,
+    });
     const header = 'id,amount,currency,status,createdAt\n';
-    const rows = items.map(p => `${p.id},${p.sourceAmount},${p.sourceAsset},${p.status},${p.createdAt.toISOString()}`).join('\n');
+    const rows = items
+      .map(
+        (p) =>
+          `${p.id},${p.sourceAmount},${p.sourceAsset},${p.status},${p.createdAt.toISOString()}`,
+      )
+      .join('\n');
     return Buffer.from(header + rows);
   }
 }
