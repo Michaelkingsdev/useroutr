@@ -23,8 +23,9 @@ async function main() {
         envContent = fs.readFileSync(envPath, "utf-8");
     }
 
-    const envVarRegex = new RegExp(`^HTLC_EVM_ADDRESS_${network.name.toUpperCase().replaceAll("-", "_")}=.*$`, "m");
-    const newEnvVar = `HTLC_EVM_ADDRESS_${network.name.toUpperCase().replaceAll("-", "_")}=${htlcAddress}`;
+    const networkKey = network.name.toUpperCase().replaceAll("-", "_");
+    const envVarRegex = new RegExp(`^HTLC_EVM_ADDRESS_${networkKey}=.*$`, "m");
+    const newEnvVar = `HTLC_EVM_ADDRESS_${networkKey}=${htlcAddress}`;
 
     if (envVarRegex.test(envContent)) {
         envContent = envContent.replace(envVarRegex, newEnvVar);
@@ -40,8 +41,10 @@ async function main() {
 
     if (network.name !== "hardhat" && network.name !== "localhost") {
         console.log("Waiting for 5 block confirmations...");
-        // @ts-ignore
-        await htlc.deploymentTransaction()?.wait(5);
+        const deploymentTransaction = htlc.deploymentTransaction();
+        if (deploymentTransaction) {
+            await deploymentTransaction.wait(5);
+        }
 
         console.log("Verifying contract on block explorer...");
         try {

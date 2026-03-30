@@ -1,45 +1,45 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { HTLCEvm } from "../typechain-types";
+import { HTLCEvm, MockERC20, HTLCEvm__factory, MockERC20__factory } from "../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
-import { Contract } from "ethers";
 
-const createHashlock = (preimage: string) => {
-    return ethers.sha256(preimage);
+const getPreimageAsBytes32 = (secret: string) => {
+    return ethers.zeroPadValue(ethers.toUtf8Bytes(secret), 32);
+};
+
+const createHashlock = (secret: string) => {
+    return ethers.sha256(getPreimageAsBytes32(secret));
 };
 
 describe("HTLCEvm", function () {
     let htlc: HTLCEvm;
-    let token: Contract;
+    let token: MockERC20;
     let owner: SignerWithAddress;
     let sender: SignerWithAddress;
     let receiver: SignerWithAddress;
 
     const amount = ethers.parseUnits("100", 18);
     const secret = "my_super_secret_preimage";
-    const bytes32Preimage = ethers.encodeBytes32String(secret);
-    const hashlock = createHashlock(bytes32Preimage);
-    let lockId: string;
+    const hashlock = createHashlock(secret);
     let timelock: number;
 
     beforeEach(async function () {
         [owner, sender, receiver] = await ethers.getSigners();
 
-        const TokenFactory = await ethers.getContractFactory("MockERC20", owner);
+        const TokenFactory = (await ethers.getContractFactory("MockERC20", owner)) as MockERC20__factory;
         token = await TokenFactory.deploy();
         await token.waitForDeployment();
         const tokenAddress = await token.getAddress();
 
-        await token.connect(owner).getFunction("mint")(sender.address, amount * 10n);
+        await token.connect(owner).mint(sender.address, amount * 10n);
 
-        const HTLCFactory = await ethers.getContractFactory("HTLCEvm");
+        const HTLCFactory = (await ethers.getContractFactory("HTLCEvm")) as HTLCEvm__factory;
         htlc = await HTLCFactory.deploy();
         await htlc.waitForDeployment();
 
         const htlcAddress = await htlc.getAddress();
-
-        await token.connect(sender).getFunction("approve")(htlcAddress, amount * 10n);
+        await token.connect(sender).approve(htlcAddress, amount * 10n);
 
         const latestTime = await time.latest();
         timelock = latestTime + 3600;
@@ -50,8 +50,8 @@ describe("HTLCEvm", function () {
             const htlcAddress = await htlc.getAddress();
             const tokenAddress = await token.getAddress();
 
-            const senderInitialBal = await token.getFunction("balanceOf")(sender.address);
-            const htlcInitialBal = await token.getFunction("balanceOf")(htlcAddress);
+            const senderInitialBal = await token.balanceOf(sender.address);
+            const htlcInitialBal = await token.balanceOf(htlcAddress);
 
             const tx = await htlc.connect(sender).lock(
                 receiver.address,
@@ -64,17 +64,19 @@ describe("HTLCEvm", function () {
             const receipt = await tx.wait();
             if (!receipt) throw new Error("No receipt");
 
-            const event = htlc.interface.parseLog(receipt.logs[1] as any);
-            expect(event?.name).to.equal("Locked");
-            
-            lockId = event?.args[0];
+            const lockedLog = receipt.logs.find(
+                (log) => htlc.interface.parseLog(log as any)?.name === "Locked"
+            );
+            if (!lockedLog) throw new Error("Locked event not found");
+            const lockedEvent = htlc.interface.parseLog(lockedLog as any);
 
-            expect(event?.args[1]).to.equal(sender.address);
-            expect(event?.args[2]).to.equal(receiver.address);
-            expect(event?.args[3]).to.equal(amount);
+            const lockId = lockedEvent?.args.lockId;
+            expect(lockedEvent?.args.sender).to.equal(sender.address);
+            expect(lockedEvent?.args.receiver).to.equal(receiver.address);
+            expect(lockedEvent?.args.amount).to.equal(amount);
 
-            const senderFinalBal = await token.getFunction("balanceOf")(sender.address);
-            const htlcFinalBal = await token.getFunction("balanceOf")(htlcAddress);
+            const senderFinalBal = await token.balanceOf(sender.address);
+            const htlcFinalBal = await token.balanceOf(htlcAddress);
 
             expect(senderInitialBal - senderFinalBal).to.equal(amount);
             expect(htlcFinalBal - htlcInitialBal).to.equal(amount);
@@ -108,7 +110,6 @@ describe("HTLCEvm", function () {
 
         beforeEach(async function () {
             const tokenAddress = await token.getAddress();
-
             const tx = await htlc.connect(sender).lock(
                 receiver.address,
                 tokenAddress,
@@ -118,80 +119,52 @@ describe("HTLCEvm", function () {
             );
             const receipt = await tx.wait();
             if (!receipt) throw new Error("No receipt");
-            const event = htlc.interface.parseLog(receipt.logs[1] as any);
-            currentLockId = event?.args[0];
+            const lockedLog = receipt.logs.find(
+                (log) => htlc.interface.parseLog(log as any)?.name === "Locked"
+            );
+            currentLockId = htlc.interface.parseLog(lockedLog as any)?.args.lockId;
         });
 
         it("withdraw() with correct preimage: Reveal secret, verify receiver gets tokens", async function () {
-            const tokenAddress = await token.getAddress();
-            const receiverInitialBal = await token.getFunction("balanceOf")(receiver.address);
-            const bytes32Preimage = ethers.encodeBytes32String(secret);
-            const specificHashlock = ethers.sha256(bytes32Preimage);
+            const receiverInitialBal = await token.balanceOf(receiver.address);
+            const preimage = getPreimageAsBytes32(secret);
 
-            const tx = await htlc.connect(sender).lock(
-                receiver.address,
-                tokenAddress,
-                amount,
-                specificHashlock,
-                timelock + 100
-            );
-            const receipt = await tx.wait();
-            if (!receipt) throw new Error("No receipt");
-            const event = htlc.interface.parseLog(receipt.logs[1] as any);
-            const newLockId = event?.args[0];
-
-            await expect(htlc.connect(receiver).withdraw(newLockId, bytes32Preimage))
+            await expect(htlc.connect(receiver).withdraw(currentLockId, preimage))
                 .to.emit(htlc, "Withdrawn")
-                .withArgs(newLockId, bytes32Preimage);
+                .withArgs(currentLockId, preimage);
 
-            const receiverFinalBal = await token.getFunction("balanceOf")(receiver.address);
+            const receiverFinalBal = await token.balanceOf(receiver.address);
             expect(receiverFinalBal - receiverInitialBal).to.equal(amount);
 
-            const lockEntry = await htlc.locks(newLockId);
+            const lockEntry = await htlc.locks(currentLockId);
             expect(lockEntry.withdrawn).to.be.true;
         });
 
         it("Reject wrong preimage: withdraw() with wrong secret reverts", async function () {
-            const wrongSecret = ethers.encodeBytes32String("wrong_secret");
+            const wrongPreimage = getPreimageAsBytes32("wrong_secret");
             await expect(
-                htlc.connect(receiver).withdraw(currentLockId, wrongSecret)
+                htlc.connect(receiver).withdraw(currentLockId, wrongPreimage)
             ).to.be.revertedWithCustomError(htlc, "InvalidPreimage");
         });
 
         it("Reject withdraw after expiry: withdraw() after timelock reverts", async function () {
-            const tokenAddress = await token.getAddress();
-            const bytes32Preimage = ethers.encodeBytes32String(secret);
-            const specificHashlock = ethers.sha256(bytes32Preimage);
-
-            const tx = await htlc.connect(sender).lock(
-                receiver.address,
-                tokenAddress,
-                amount,
-                specificHashlock,
-                timelock + 200
-            );
-            const receipt = await tx.wait();
-
-            // @ts-ignore
-            const newLockId = receipt?.logs.find((e: any) => e.fragment?.name === "Locked")?.args[0];
-
-            await time.increaseTo(timelock + 201);
+            const preimage = getPreimageAsBytes32(secret);
+            await time.increaseTo(timelock + 1);
 
             await expect(
-                htlc.connect(receiver).withdraw(newLockId, bytes32Preimage)
+                htlc.connect(receiver).withdraw(currentLockId, preimage)
             ).to.be.revertedWithCustomError(htlc, "LockExpired");
         });
 
         it("refund() after expiry: Fast-forward time, verify sender gets tokens back", async function () {
-            const senderInitialBal = await token.getFunction("balanceOf")(sender.address);
-
+            const senderInitialBal = await token.balanceOf(sender.address);
             await time.increaseTo(timelock + 1);
 
             await expect(htlc.connect(sender).refund(currentLockId))
                 .to.emit(htlc, "Refunded")
                 .withArgs(currentLockId);
 
-            const senderFinalBal = await token.getFunction("balanceOf")(sender.address);
+            const senderFinalBal = await token.balanceOf(sender.address);
             expect(senderFinalBal - senderInitialBal).to.equal(amount);
 
             const lockEntry = await htlc.locks(currentLockId);
@@ -205,32 +178,16 @@ describe("HTLCEvm", function () {
         });
 
         it("Reject double withdraw: Second withdraw() reverts", async function () {
-            const tokenAddress = await token.getAddress();
-            const bytes32Preimage = ethers.encodeBytes32String("test_secret");
-            const specificHashlock = ethers.sha256(bytes32Preimage);
-
-            const tx = await htlc.connect(sender).lock(
-                receiver.address,
-                tokenAddress,
-                amount,
-                specificHashlock,
-                timelock + 500
-            );
-            const receipt = await tx.wait();
-
-            // @ts-ignore
-            const newLockId = receipt?.logs.find((e: any) => e.fragment?.name === "Locked")?.args[0];
-
-            await htlc.connect(receiver).withdraw(newLockId, bytes32Preimage);
+            const preimage = getPreimageAsBytes32(secret);
+            await htlc.connect(receiver).withdraw(currentLockId, preimage);
 
             await expect(
-                htlc.connect(receiver).withdraw(newLockId, bytes32Preimage)
+                htlc.connect(receiver).withdraw(currentLockId, preimage)
             ).to.be.revertedWithCustomError(htlc, "AlreadyWithdrawn");
         });
 
         it("Reject double refund: Second refund() reverts", async function () {
             await time.increaseTo(timelock + 1);
-
             await htlc.connect(sender).refund(currentLockId);
 
             await expect(

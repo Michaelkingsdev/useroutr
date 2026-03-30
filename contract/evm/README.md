@@ -8,7 +8,7 @@ This project is built directly with Hardhat. To install the dependencies, execut
 
 ```bash
 cd contract/evm
-pnpm install
+npm install
 ```
 
 ## Environment Setup
@@ -38,9 +38,9 @@ npx hardhat compile
 ```
 
 ### Run the Test Suite
-This will execute the comprehensive, automated suite testing all edge cases of the locking, withdrawing, and refunding mechanisms.
+This will execute the comprehensive, automated suite testing all edge cases. Gas reporting is enabled by default.
 ```bash
-npx hardhat test
+npm test
 ```
 
 ### View Gas Reporter

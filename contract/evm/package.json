@@ -9,7 +9,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "npx hardhat test",
+    "test": "REPORT_GAS=true npx hardhat test",
     "compile": "npx hardhat compile",
     "deploy": "npx hardhat run scripts/deploy.ts --network"
   },
@@ -24,7 +24,7 @@
     "dotenv": "^16.4.5",
     "ethers": "^6.4.0",
     "hardhat": "^2.22.10",
-    "hardhat-gas-reporter": "^1.0.8",
+    "hardhat-gas-reporter": "^1.0.10",
     "ts-node": ">=8.0.0",
     "typescript": "^5.9.3"
   },
