@@ -213,7 +213,7 @@ export class AnalyticsService {
         SELECT DATE_TRUNC('day', "createdAt") as date, SUM("destAmount") as value
         FROM "Payment"
         WHERE "merchantId" = ${merchantId} AND status = 'COMPLETED' AND "createdAt" >= ${currentStart} AND "createdAt" <= ${currentEnd}
-        GROUP BY DATE_TRUNC('day', "createdAt")
+        GROUP BY 1
         ORDER BY date ASC;
       `;
 
@@ -253,19 +253,35 @@ export class AnalyticsService {
       async () => {
         const { currentStart, currentEnd } = this.getPeriodDates(period);
 
-        // Use string interpolation safely because safeGranularity is restricted
-        // to ['day', 'week', 'month'] by the allowlist check above.
+        // Select the truncated date based on granularity.
+        // We use explicit literals in the SQL to avoid parameter issues with GROUP BY.
+        let timeSeries: { date: string; value: number }[];
 
-        const timeSeries = await (this.prisma.$queryRaw as (
-          query: TemplateStringsArray,
-          ...values: unknown[]
-        ) => Promise<{ date: string; value: number }[]>)`
-        SELECT DATE_TRUNC('${safeGranularity}', "createdAt") as date, SUM("destAmount") as value
-        FROM "Payment"
-        WHERE "merchantId" = ${merchantId} AND status = 'COMPLETED' AND "createdAt" >= ${currentStart} AND "createdAt" <= ${currentEnd}
-        GROUP BY DATE_TRUNC('${safeGranularity}', "createdAt")
-        ORDER BY date ASC;
-      `;
+        if (safeGranularity === 'day') {
+          timeSeries = await this.prisma.$queryRaw`
+            SELECT DATE_TRUNC('day', "createdAt") as date, SUM("destAmount") as value
+            FROM "Payment"
+            WHERE "merchantId" = ${merchantId} AND status = 'COMPLETED' AND "createdAt" >= ${currentStart} AND "createdAt" <= ${currentEnd}
+            GROUP BY 1
+            ORDER BY date ASC;
+          `;
+        } else if (safeGranularity === 'week') {
+          timeSeries = await this.prisma.$queryRaw`
+            SELECT DATE_TRUNC('week', "createdAt") as date, SUM("destAmount") as value
+            FROM "Payment"
+            WHERE "merchantId" = ${merchantId} AND status = 'COMPLETED' AND "createdAt" >= ${currentStart} AND "createdAt" <= ${currentEnd}
+            GROUP BY 1
+            ORDER BY date ASC;
+          `;
+        } else {
+          timeSeries = await this.prisma.$queryRaw`
+            SELECT DATE_TRUNC('month', "createdAt") as date, SUM("destAmount") as value
+            FROM "Payment"
+            WHERE "merchantId" = ${merchantId} AND status = 'COMPLETED' AND "createdAt" >= ${currentStart} AND "createdAt" <= ${currentEnd}
+            GROUP BY 1
+            ORDER BY date ASC;
+          `;
+        }
         return {
           data: timeSeries.map((r) => ({
             date: String(r.date),
@@ -371,7 +387,7 @@ export class AnalyticsService {
         SELECT EXTRACT(HOUR FROM "createdAt") as hour, COUNT(*) as count
         FROM "Payment"
         WHERE "merchantId" = ${merchantId} AND status = 'FAILED' AND "createdAt" >= ${currentStart} AND "createdAt" <= ${currentEnd}
-        GROUP BY EXTRACT(HOUR FROM "createdAt")
+        GROUP BY 1
         ORDER BY hour ASC;
       `;
 
