@@ -27,8 +27,5 @@ export function verifyWebhookSignature(
   secret: string,
 ): boolean {
   const expected = signWebhookPayload(payload, secret);
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expected),
-  );
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }

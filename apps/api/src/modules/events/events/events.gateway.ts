@@ -11,18 +11,11 @@ import { Logger, Injectable } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
 
-/**
- * WebSocket Gateway for Real-Time Updates
- *
- * Handles connections from:
- * - Dashboard (authenticated with JWT)
- * - Checkout (authenticated with payment session token)
- *
- * Room Structure:
- * - merchant:{merchantId} - All merchant-scoped events (dashboard listens)
- * - payment:{paymentId} - Payment-specific updates (checkout listens)
- * - payout:{payoutId} - Payout-specific updates
- */
+interface JwtPayload {
+  sub: string;
+  type: string;
+}
+
 @Injectable()
 @WebSocketGateway({
   cors: {
@@ -40,7 +33,6 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(EventsGateway.name);
 
-  // Track authenticated user context per socket for cleanup and auth validation
   private socketContextMap = new Map<
     string,
     {
@@ -56,16 +48,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly prisma: PrismaService,
   ) {}
 
-  /**
-   * Handle new WebSocket connections
-   * Validates authentication token in handshake query
-   *
-   * Dashboard: Uses JWT in `?token=Bearer...`
-   * Checkout: Uses payment session token in `?sessionToken=...` or `?paymentId=...`
-   */
   async handleConnection(client: Socket): Promise<void> {
     try {
-      const { token, sessionToken, paymentId, type } = client.handshake.query as {
+      const { token, paymentId, type } = client.handshake.query as {
         token?: string;
         sessionToken?: string;
         paymentId?: string;
@@ -76,16 +61,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         `WebSocket connection attempt - Token: ${token ? 'yes' : 'no'}, PaymentId: ${paymentId}, Type: ${type}`,
       );
 
-      // Dashboard connection - validate JWT
       if (token && type === 'merchant') {
-        const merchantId = await this.validateDashboardAuth(token as string);
+        const merchantId = await this.validateDashboardAuth(token);
         this.socketContextMap.set(client.id, {
           merchantId,
           type: 'merchant',
           connectedAt: new Date(),
         });
 
-        client.join(`merchant:${merchantId}`);
+        void client.join(`merchant:${merchantId}`);
         this.logger.log(
           `Dashboard client connected - Merchant: ${merchantId}, SocketId: ${client.id}`,
         );
@@ -93,12 +77,8 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      // Checkout connection - validate payment session or paymentId
-      if ((paymentId || sessionToken) && type === 'payment') {
-        const payment = await this.validateCheckoutAuth(
-          paymentId as string,
-          sessionToken as string,
-        );
+      if (paymentId && type === 'payment') {
+        const payment = await this.validateCheckoutAuth(paymentId);
 
         this.socketContextMap.set(client.id, {
           paymentId: payment.id,
@@ -106,8 +86,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           connectedAt: new Date(),
         });
 
-        // Automatically subscribe to their payment
-        client.join(`payment:${payment.id}`);
+        void client.join(`payment:${payment.id}`);
         this.logger.log(
           `Checkout client connected - Payment: ${payment.id}, SocketId: ${client.id}`,
         );
@@ -115,8 +94,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      // Invalid connection - no valid auth provided
-      this.logger.warn(`Connection rejected - Invalid or missing authentication`);
+      this.logger.warn(
+        `Connection rejected - Invalid or missing authentication`,
+      );
       client.disconnect(true);
     } catch (error) {
       this.logger.error(
@@ -126,48 +106,39 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  /**
-   * Handle client disconnection
-   * Cleanup socket context and room subscriptions
-   */
   handleDisconnect(client: Socket): void {
     const context = this.socketContextMap.get(client.id);
 
     if (context) {
-      const roomId =
-        context.type === 'merchant'
-          ? `merchant:${context.merchantId}`
-          : `payment:${context.paymentId}`;
+      const identifier =
+        context.type === 'merchant' ? context.merchantId : context.paymentId;
 
       this.logger.log(
-        `Client disconnected - ${context.type === 'merchant' ? 'Merchant' : 'Payment'}: ${context.merchantId || context.paymentId}, SocketId: ${client.id}`,
+        `Client disconnected - ${context.type}: ${identifier}, SocketId: ${client.id}`,
       );
     }
 
-    // Clean up the socket context
     this.socketContextMap.delete(client.id);
   }
 
-  /**
-   * Merchant subscribes to merchant-scoped events
-   * Called when dashboard wants to listen to merchant updates
-   */
   @SubscribeMessage('subscribe:merchant')
-  async handleMerchantSubscribe(
+  handleMerchantSubscribe(
     client: Socket,
     merchantId: string,
-  ): Promise<{ subscribed: boolean; merchant: string }> {
+  ): { subscribed: boolean; merchant: string } {
     const context = this.socketContextMap.get(client.id);
 
-    // Validate that the client is authenticated as a merchant and owns this merchant
-    if (!context || context.type !== 'merchant' || context.merchantId !== merchantId) {
+    if (
+      !context ||
+      context.type !== 'merchant' ||
+      context.merchantId !== merchantId
+    ) {
       throw new WsException(
         'Unauthorized - cannot subscribe to other merchant events',
       );
     }
 
-    // Ensure client is in the merchant room
-    client.join(`merchant:${merchantId}`);
+    void client.join(`merchant:${merchantId}`);
 
     this.logger.log(
       `Merchant ${merchantId} subscribed to merchant events (SocketId: ${client.id})`,
@@ -179,27 +150,24 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
   }
 
-  /**
-   * Payer subscribes to payment-specific updates
-   * Called when checkout wants to listen to a specific payment's status
-   */
   @SubscribeMessage('subscribe:payment')
-  async handlePaymentSubscribe(
+  handlePaymentSubscribe(
     client: Socket,
     paymentId: string,
-  ): Promise<{ subscribed: boolean; payment: string }> {
+  ): { subscribed: boolean; payment: string } {
     const context = this.socketContextMap.get(client.id);
 
-    // Validate that the client is authenticated as payment subscriber
-    // and is watching the correct payment
-    if (!context || context.type !== 'payment' || context.paymentId !== paymentId) {
+    if (
+      !context ||
+      context.type !== 'payment' ||
+      context.paymentId !== paymentId
+    ) {
       throw new WsException(
         'Unauthorized - cannot subscribe to other payment events',
       );
     }
 
-    // Ensure client is in the payment room
-    client.join(`payment:${paymentId}`);
+    void client.join(`payment:${paymentId}`);
 
     this.logger.log(
       `Client subscribed to payment ${paymentId} updates (SocketId: ${client.id})`,
@@ -211,26 +179,16 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
   }
 
-  /**
-   * Validate dashboard authentication via JWT token
-   * Returns the merchant ID if valid
-   *
-   * @param token - JWT token from handshake
-   * @throws WsException if token is invalid
-   */
   private async validateDashboardAuth(token: string): Promise<string> {
     try {
-      // Extract bearer token if needed
       const jwtToken = token.replace('Bearer ', '').replace('bearer ', '');
 
-      // Verify JWT signature and expiry
-      const payload = await this.jwtService.verifyAsync(jwtToken);
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(jwtToken);
 
       if (!payload.sub || payload.type !== 'access') {
         throw new Error('Invalid token payload');
       }
 
-      // Verify merchant exists
       const merchant = await this.prisma.merchant.findUnique({
         where: { id: payload.sub },
       });
@@ -247,26 +205,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  /**
-   * Validate checkout authentication
-   * Can use either a payment session token or just the paymentId
-   * (For MVP, we accept paymentId; in production, validate a session token)
-   *
-   * @param paymentId - The payment ID from connection params
-   * @param sessionToken - Optional session token for future validation
-   * @throws WsException if payment doesn't exist or is invalid
-   */
   private async validateCheckoutAuth(
     paymentId: string,
-    sessionToken?: string,
   ): Promise<{ id: string; merchantId: string }> {
     try {
       if (!paymentId) {
         throw new Error('Payment ID is required');
       }
 
-      // In production, validate sessionToken against a session store
-      // For now, we just verify the payment exists
       const payment = await this.prisma.payment.findUnique({
         where: { id: paymentId },
         select: { id: true, merchantId: true },

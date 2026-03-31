@@ -7,7 +7,7 @@ export class PaymentResponseDto {
   settlement_amount!: string;
   settlement_asset!: string;
   customer?: { email?: string; name?: string };
-  metadata?: any;
+  metadata?: Record<string, unknown> | null;
   created_at!: Date;
   expires_at!: Date;
 }

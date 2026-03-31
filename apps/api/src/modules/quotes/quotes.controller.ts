@@ -45,7 +45,9 @@ export class QuotesController {
    */
   @Get(':id')
   @HttpCode(HttpStatus.OK)
-  async getQuote(@Param('id') quoteId: string): Promise<QuoteResponseDto | null> {
+  async getQuote(
+    @Param('id') quoteId: string,
+  ): Promise<QuoteResponseDto | null> {
     const quote = await this.quotesService.getQuote(quoteId);
     if (!quote) {
       return null;

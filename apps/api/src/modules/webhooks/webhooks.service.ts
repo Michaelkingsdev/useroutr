@@ -7,11 +7,12 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { WebhookStatus } from '@prisma/client';
+import { Prisma, WebhookStatus } from '@prisma/client';
 import {
   WEBHOOK_QUEUE_NAME,
   WEBHOOK_JOB_NAME,
   WEBHOOK_EVENTS,
+  WebhookEventType,
 } from './webhooks.constants';
 import {
   WebhookConfig,
@@ -23,7 +24,6 @@ import {
   RegisterWebhookDto,
   UpdateWebhookDto,
   WebhookEventResponseDto,
-  WebhookLogFiltersDto,
 } from './dto';
 import * as crypto from 'crypto';
 
@@ -45,11 +45,13 @@ export class WebhooksService {
   ): Promise<WebhookConfig> {
     // Validate event types
     const validEvents = dto.subscribedEvents.filter((event) =>
-      WEBHOOK_EVENTS.includes(event as any),
+      (WEBHOOK_EVENTS as readonly string[]).includes(event),
     );
 
     if (validEvents.length === 0) {
-      throw new BadRequestException('At least one valid event type is required');
+      throw new BadRequestException(
+        'At least one valid event type is required',
+      );
     }
 
     if (validEvents.length !== dto.subscribedEvents.length) {
@@ -99,7 +101,7 @@ export class WebhooksService {
       throw new BadRequestException('No webhook configured');
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.MerchantUpdateInput = {};
 
     if (dto.webhookUrl) {
       updateData.webhookUrl = dto.webhookUrl;
@@ -108,11 +110,13 @@ export class WebhooksService {
     if (dto.subscribedEvents) {
       // Validate event types
       const validEvents = dto.subscribedEvents.filter((event) =>
-        WEBHOOK_EVENTS.includes(event as any),
+        (WEBHOOK_EVENTS as readonly string[]).includes(event),
       );
 
       if (validEvents.length === 0) {
-        throw new BadRequestException('At least one valid event type is required');
+        throw new BadRequestException(
+          'At least one valid event type is required',
+        );
       }
 
       if (validEvents.length !== dto.subscribedEvents.length) {
@@ -167,8 +171,8 @@ export class WebhooksService {
    */
   async dispatch(
     merchantId: string,
-    eventType: string,
-    payload: any,
+    eventType: WebhookEventType,
+    payload: Prisma.InputJsonValue,
     paymentId?: string,
   ): Promise<void> {
     const merchant = await this.prisma.merchant.findUnique({
@@ -199,7 +203,7 @@ export class WebhooksService {
     const jobData: WebhookJobData = {
       eventId: event.id,
       merchantId,
-      eventType: eventType as any,
+      eventType,
       payload,
       webhookUrl: merchant.webhookUrl,
       webhookSecret: merchant.webhookSecret,
@@ -235,7 +239,7 @@ export class WebhooksService {
     const limit = filters?.limit || 50;
     const offset = filters?.offset || 0;
 
-    const where: any = {
+    const where: Prisma.WebhookEventWhereInput = {
       merchantId,
     };
 
@@ -249,10 +253,10 @@ export class WebhooksService {
 
     if (filters?.startDate || filters?.endDate) {
       where.createdAt = {};
-      if (filters.startDate) {
+      if (filters?.startDate) {
         where.createdAt.gte = new Date(filters.startDate);
       }
-      if (filters.endDate) {
+      if (filters?.endDate) {
         where.createdAt.lte = new Date(filters.endDate);
       }
     }
@@ -288,7 +292,9 @@ export class WebhooksService {
     }
 
     if (event.status === WebhookStatus.DELIVERED) {
-      throw new BadRequestException('Cannot retry a successfully delivered event');
+      throw new BadRequestException(
+        'Cannot retry a successfully delivered event',
+      );
     }
 
     const merchant = await this.prisma.merchant.findUnique({
@@ -322,8 +328,8 @@ export class WebhooksService {
     const jobData: WebhookJobData = {
       eventId: event.id,
       merchantId: event.merchantId,
-      eventType: event.eventType as any,
-      payload: event.payload,
+      eventType: event.eventType as WebhookEventType,
+      payload: event.payload as Prisma.InputJsonValue,
       webhookUrl: merchant.webhookUrl,
       webhookSecret: merchant.webhookSecret,
       attempt: newAttempts + 1,
@@ -342,7 +348,6 @@ export class WebhooksService {
 
   /**
    * Get total count of pending webhooks for a merchant
-   * (for monitoring/debugging)
    */
   async getPendingCount(merchantId: string): Promise<number> {
     return this.prisma.webhookEvent.count({
@@ -355,7 +360,6 @@ export class WebhooksService {
 
   /**
    * Get event details if it belongs to the merchant
-   * (helper for authorization)
    */
   async getEventDetails(
     merchantId: string,

@@ -10,7 +10,7 @@ import { SettlementDto } from './dto/settlement.dto';
 import { BrandingDto } from './dto/branding.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { KybSubmissionDto } from './dto/kyb-submission.dto';
-import { detectAddressChain } from '@tavvio/types';
+import { detectAddressChain, type Chain } from '@tavvio/types';
 
 @Injectable()
 export class MerchantService {
@@ -53,12 +53,10 @@ export class MerchantService {
     // Validate settlement address against chain if both provided
     if (dto.settlementAddress) {
       const detection = detectAddressChain(dto.settlementAddress);
-      const targetChain = dto.settlementChain;
+      const targetChain = dto.settlementChain as Chain | undefined;
 
       if (targetChain && detection.format !== 'unknown') {
-        const isValidForChain = detection.possibleChains.includes(
-          targetChain as any,
-        );
+        const isValidForChain = detection.possibleChains.includes(targetChain);
         if (!isValidForChain) {
           throw new BadRequestException(
             `Address format (${detection.format}) is not compatible with chain "${targetChain}". ` +
@@ -145,11 +143,7 @@ export class MerchantService {
     return member;
   }
 
-  async updateMemberRole(
-    merchantId: string,
-    memberId: string,
-    role: TeamRole,
-  ) {
+  async updateMemberRole(merchantId: string, memberId: string, role: TeamRole) {
     const member = await this.prisma.teamMember.findFirst({
       where: { id: memberId, merchantId },
     });
@@ -203,9 +197,7 @@ export class MerchantService {
     }
 
     if (merchant.kybStatus === KybStatus.SUBMITTED) {
-      throw new BadRequestException(
-        'KYB already submitted and pending review',
-      );
+      throw new BadRequestException('KYB already submitted and pending review');
     }
 
     // Store KYB data and update status
@@ -228,8 +220,12 @@ export class MerchantService {
 
   // ── Helpers ──────────────────────────────────────────────────
 
-  private sanitize(merchant: Merchant & Record<string, any>) {
+  private sanitize(
+    merchant: Merchant & Record<string, unknown>,
+  ): Omit<Merchant, 'passwordHash' | 'apiKeyHash'> {
     const { passwordHash, apiKeyHash, ...profile } = merchant;
+    void passwordHash;
+    void apiKeyHash;
     return profile;
   }
 

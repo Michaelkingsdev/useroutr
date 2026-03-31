@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { TeamRole } from '@prisma/client';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuthenticatedRequest } from '../../../common/decorators/current-merchant.decorator';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -27,8 +28,8 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const merchantId: string = request.user?.id;
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const merchantId = request.user?.id;
 
     if (!merchantId) {
       throw new ForbiddenException('Authentication required');

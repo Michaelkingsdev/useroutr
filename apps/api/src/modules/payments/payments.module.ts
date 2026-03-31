@@ -29,4 +29,4 @@ import { AuthModule } from '../auth/auth.module';
   ],
   exports: [PaymentsService],
 })
-export class PaymentsModule { }
+export class PaymentsModule {}

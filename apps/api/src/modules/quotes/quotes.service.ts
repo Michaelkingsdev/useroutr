@@ -11,7 +11,10 @@ import { StellarService } from '../stellar/stellar.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BridgeRouterService } from '../bridge/bridge-router.service';
 import { Quote } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Prisma } from '@prisma/client';
+type Decimal = Prisma.Decimal;
+const Decimal = Prisma.Decimal;
+import { Chain } from '@tavvio/types';
 import { CreateQuoteDto } from './dto/create-quote.dto';
 import { QuoteResponseDto } from './dto/quote-response.dto';
 
@@ -47,7 +50,7 @@ export class QuotesService {
       }
 
       // Apply defaults from merchant
-      const toChain = dto.toChain || (merchant.settlementChain as any);
+      const toChain = dto.toChain || (merchant.settlementChain as Chain);
       const toAsset = dto.toAsset || merchant.settlementAsset;
 
       this.logger.debug(
@@ -63,13 +66,10 @@ export class QuotesService {
       let toAmountDecimal: Decimal;
       let rate: Decimal;
       let bridgeRoute: string | null = null;
-      let stellarPath: any = null;
+      let stellarPath: Prisma.InputJsonValue | undefined = undefined;
 
       // Check if same chain and asset (no path finding needed)
-      if (
-        dto.fromChain === toChain &&
-        dto.fromAsset === toAsset
-      ) {
+      if (dto.fromChain === toChain && dto.fromAsset === toAsset) {
         toAmountDecimal = fromAmountDecimal;
         rate = new Decimal(1);
         this.logger.debug('Same chain and asset: 1:1 rate');
@@ -160,11 +160,15 @@ export class QuotesService {
     fromAmount: Decimal,
     toChain: string,
     toAsset: string,
-  ): Promise<{ destinationAmount: Decimal; path: any }> {
+  ): Promise<{
+    destinationAmount: Decimal;
+    path: Prisma.InputJsonValue | undefined;
+  }> {
     // For now, if both are on Stellar, use strict send paths
     if (fromChain === 'stellar' && toChain === 'stellar') {
       try {
-        const sourceAsset = fromAsset === 'native' ? 'native' : `${fromAsset}:*`;
+        const sourceAsset =
+          fromAsset === 'native' ? 'native' : `${fromAsset}:*`;
         const destAsset = toAsset === 'native' ? 'native' : `${toAsset}:*`;
 
         const pathResult = await this.stellar.findStrictSendPaths({
@@ -175,7 +179,9 @@ export class QuotesService {
 
         return {
           destinationAmount: new Decimal(pathResult.destinationAmount),
-          path: pathResult.paths[0], // Use best path
+          path: JSON.parse(
+            JSON.stringify(pathResult.paths[0]),
+          ) as Prisma.InputJsonValue,
         };
       } catch (error) {
         this.logger.error('Failed to find Stellar path:', error);
@@ -193,7 +199,7 @@ export class QuotesService {
 
     return {
       destinationAmount: fromAmount,
-      path: null,
+      path: undefined,
     };
   }
 
@@ -247,10 +253,9 @@ export class QuotesService {
   ): QuoteResponseDto {
     const expiresAt = quote.expiresAt;
     const now = new Date();
-    const secondsRemaining = expiresInSeconds ?? Math.max(
-      0,
-      Math.floor((expiresAt.getTime() - now.getTime()) / 1000),
-    );
+    const secondsRemaining =
+      expiresInSeconds ??
+      Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
 
     return {
       id: quote.id,

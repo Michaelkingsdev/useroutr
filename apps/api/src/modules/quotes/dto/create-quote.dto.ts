@@ -5,7 +5,17 @@ export class CreateQuoteDto {
   /**
    * Source chain (ethereum, base, stellar, etc.)
    */
-  @IsEnum(['stellar', 'ethereum', 'base', 'bnb', 'polygon', 'arbitrum', 'avalanche', 'solana', 'starknet'])
+  @IsEnum([
+    'stellar',
+    'ethereum',
+    'base',
+    'bnb',
+    'polygon',
+    'arbitrum',
+    'avalanche',
+    'solana',
+    'starknet',
+  ])
   fromChain!: Chain;
 
   /**
@@ -23,7 +33,17 @@ export class CreateQuoteDto {
   /**
    * Destination chain - defaults to merchant's settlementChain
    */
-  @IsEnum(['stellar', 'ethereum', 'base', 'bnb', 'polygon', 'arbitrum', 'avalanche', 'solana', 'starknet'])
+  @IsEnum([
+    'stellar',
+    'ethereum',
+    'base',
+    'bnb',
+    'polygon',
+    'arbitrum',
+    'avalanche',
+    'solana',
+    'starknet',
+  ])
   @IsOptional()
   toChain?: Chain;
 

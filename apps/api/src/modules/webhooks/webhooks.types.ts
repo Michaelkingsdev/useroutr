@@ -1,10 +1,11 @@
 import { WebhookEventType } from './webhooks.constants';
+import { Prisma } from '@prisma/client';
 
 export interface WebhookJobData {
   eventId: string;
   merchantId: string;
   eventType: WebhookEventType;
-  payload: any;
+  payload: Prisma.InputJsonValue;
   webhookUrl: string;
   webhookSecret: string;
   attempt: number;

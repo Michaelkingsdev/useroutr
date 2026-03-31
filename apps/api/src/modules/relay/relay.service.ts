@@ -10,9 +10,9 @@ import { StellarService } from '../stellar/stellar.service';
 import { PaymentsService } from '../payments/payments.service';
 import { BridgeRouterService } from '../bridge/bridge-router.service';
 
-/** Soroban HTLC contract event shape */
+/** Soroban contract event shape */
 interface StellarHTLCEvent {
-  type: 'Locked' | 'Withdrawn' | 'Refunded';
+  type: 'Locked' | 'Withdrawn' | 'Refunded' | 'Settled' | 'Confirmed';
   lock_id: string;
   preimage: string;
 }

@@ -102,7 +102,10 @@ export class WebhooksController {
     @Param('id') eventId: string,
   ) {
     // Verify the event belongs to this merchant
-    const event = await this.webhooksService.getEventDetails(merchantId, eventId);
+    const event = await this.webhooksService.getEventDetails(
+      merchantId,
+      eventId,
+    );
 
     if (!event) {
       throw new NotFoundException('Webhook event not found');

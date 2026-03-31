@@ -10,7 +10,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
-import { PaymentStatus, Payment, Prisma, BankTransferType } from '@prisma/client';
+import {
+  PaymentStatus,
+  Payment,
+  Prisma,
+  BankTransferType,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsService } from '../events/events/events.service';
 import { QuotesService } from '../quotes/quotes.service';
@@ -165,8 +170,8 @@ export class PaymentsService implements OnModuleInit {
 
     await this.webhooksService.dispatch(
       updatedPayment.merchantId,
-      `payment.${status.toLowerCase()}`,
-      updatedPayment,
+      `payment.${status.toLowerCase()}` as import('../webhooks/webhooks.constants').WebhookEventType,
+      updatedPayment as unknown as import('@prisma/client').Prisma.InputJsonValue,
       updatedPayment.id,
     );
 
@@ -310,7 +315,7 @@ export class PaymentsService implements OnModuleInit {
       currency: payment.sourceAsset,
       settlement_amount: payment.destAmount.toString(),
       settlement_asset: payment.destAsset,
-      metadata: payment.metadata,
+      metadata: payment.metadata as Record<string, unknown> | null,
       created_at: payment.createdAt,
       expires_at: new Date(payment.createdAt.getTime() + 30 * 60 * 1000),
     };
@@ -329,7 +334,9 @@ export class PaymentsService implements OnModuleInit {
 
   // ── Checkout ──────────────────────────────────────────────────────────
 
-  async getCheckoutPayment(paymentId: string): Promise<CheckoutPaymentResponse> {
+  async getCheckoutPayment(
+    paymentId: string,
+  ): Promise<CheckoutPaymentResponse> {
     const payment = await this.getByIdWithRelations(paymentId);
     const metadata = this.asRecord(payment.metadata);
     const description = this.readString(metadata.description);
@@ -436,7 +443,9 @@ export class PaymentsService implements OnModuleInit {
       );
     }
 
-    const webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET');
+    const webhookSecret = this.configService.get<string>(
+      'STRIPE_WEBHOOK_SECRET',
+    );
     if (!webhookSecret) {
       throw new ServiceUnavailableException(
         'Stripe webhook secret is not configured on the API.',
@@ -753,24 +762,26 @@ export class PaymentsService implements OnModuleInit {
 
     const skip = (Number(page) - 1) * Number(limit);
 
-    const where: any = { merchantId };
+    const where: Prisma.PaymentWhereInput = { merchantId };
     if (status) where.status = status;
     if (currency) where.sourceAsset = currency;
 
     if (from || to) {
-      where.createdAt = {};
-      if (from) where.createdAt.gte = new Date(from);
-      if (to) where.createdAt.lte = new Date(to);
+      where.createdAt = {
+        ...(from ? { gte: new Date(from) } : {}),
+        ...(to ? { lte: new Date(to) } : {}),
+      };
     }
 
     if (minAmount || maxAmount) {
-      where.sourceAmount = {};
-      if (minAmount) where.sourceAmount.gte = minAmount;
-      if (maxAmount) where.sourceAmount.lte = maxAmount;
+      where.sourceAmount = {
+        ...(minAmount ? { gte: minAmount } : {}),
+        ...(maxAmount ? { lte: maxAmount } : {}),
+      };
     }
 
     if (search) {
-      where.OR = [{ id: { contains: search, mode: 'insensitive' } }];
+      where.OR = [{ id: { contains: search, mode: 'insensitive' as const } }];
     }
 
     const [items, total] = await Promise.all([
@@ -870,7 +881,7 @@ export class PaymentsService implements OnModuleInit {
     const rows = items
       .map(
         (p) =>
-          `${p.id},${p.sourceAmount},${p.sourceAsset},${p.status},${p.createdAt.toISOString()}`,
+          `${p.id},${String(p.sourceAmount)},${p.sourceAsset},${p.status},${p.createdAt.toISOString()}`,
       )
       .join('\n');
     return Buffer.from(header + rows);
@@ -886,7 +897,9 @@ export class PaymentsService implements OnModuleInit {
   private toMinorUnits(amount: unknown): number {
     const numericAmount = this.toNumber(amount);
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      throw new BadRequestException('Payment amount must be greater than zero.');
+      throw new BadRequestException(
+        'Payment amount must be greater than zero.',
+      );
     }
 
     return Math.max(1, Math.round(numericAmount * 100));
@@ -1094,7 +1107,7 @@ export class PaymentsService implements OnModuleInit {
     bic: string | null;
     branchCode: string | null;
     reference: string;
-    amount: any;
+    amount: Prisma.Decimal | number | string;
     currency: string;
     instructions: string;
     type: BankTransferType;

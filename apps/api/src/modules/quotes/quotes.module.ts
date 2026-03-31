@@ -4,9 +4,10 @@ import { QuotesService } from './quotes.service';
 import { QuotesController } from './quotes.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { BridgeModule } from '../bridge/bridge.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [StellarModule, PrismaModule, BridgeModule],
+  imports: [StellarModule, PrismaModule, BridgeModule, AuthModule],
   providers: [QuotesService],
   controllers: [QuotesController],
   exports: [QuotesService],

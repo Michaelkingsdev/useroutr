@@ -44,6 +44,20 @@ export interface LockEntry {
   refunded: boolean;
 }
 
+export interface SettlementInfo {
+  sourceAsset: string;
+  sourceAmount: bigint;
+  destAsset: string;
+  destAmount: bigint;
+  merchant: string;
+  merchantAmount: bigint;
+  feeAmount: bigint;
+  hashlock: string;
+  timelock: number;
+  htlcLockId: string;
+  confirmed: boolean;
+}
+
 // ── Service ──────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -57,6 +71,7 @@ export class StellarService implements OnModuleDestroy {
 
   private readonly htlcContractId: string;
   private readonly feeCollectorContractId: string;
+  private readonly settlementContractId: string;
 
   private readonly eventStopFns: Array<() => void> = [];
 
@@ -87,6 +102,8 @@ export class StellarService implements OnModuleDestroy {
     this.htlcContractId = process.env.SOROBAN_HTLC_CONTRACT_ID || '';
     this.feeCollectorContractId =
       process.env.SOROBAN_FEE_COLLECTOR_CONTRACT_ID || '';
+    this.settlementContractId =
+      process.env.SOROBAN_SETTLEMENT_CONTRACT_ID || '';
   }
 
   onModuleDestroy() {
@@ -332,6 +349,143 @@ export class StellarService implements OnModuleDestroy {
     };
   }
 
+  // ── Settlement ─────────────────────────────────────────────────────────────
+
+  /**
+   * Phase 1: Execute settlement — fee deduction + transfer merchant_amount to relay.
+   * The relay must have deposited `destAmount` into the settlement contract first.
+   */
+  async settle(params: {
+    sourceAsset: string;
+    sourceAmount: bigint;
+    destAsset: string;
+    destAmount: bigint;
+    merchant: string;
+    hashlock: string;
+    timelock: number;
+  }): Promise<{ merchantAmount: bigint; feeAmount: bigint }> {
+    this.logger.log(
+      `Settling: ${params.destAmount} units for merchant ${params.merchant}`,
+    );
+
+    const relayPublicKey = this.requireKeypair().publicKey();
+
+    const args = [
+      new StellarSdk.Address(relayPublicKey).toScVal(),
+      new StellarSdk.Address(params.sourceAsset).toScVal(),
+      StellarSdk.nativeToScVal(params.sourceAmount, { type: 'i128' }),
+      new StellarSdk.Address(params.destAsset).toScVal(),
+      StellarSdk.nativeToScVal(params.destAmount, { type: 'i128' }),
+      new StellarSdk.Address(params.merchant).toScVal(),
+      StellarSdk.nativeToScVal(Buffer.from(params.hashlock, 'hex'), {
+        type: 'bytes',
+      }),
+      StellarSdk.nativeToScVal(params.timelock, { type: 'u64' }),
+    ];
+
+    const result = await this.invokeSorobanContract(
+      this.settlementContractId,
+      'settle',
+      args,
+    );
+
+    const success =
+      result as StellarSdk.rpc.Api.GetSuccessfulTransactionResponse;
+    if (!success.returnValue) {
+      throw new Error('Settlement returned no value');
+    }
+
+    const [merchantAmount, feeAmount] = StellarSdk.scValToNative(
+      success.returnValue,
+    ) as [bigint, bigint];
+
+    this.logger.log(
+      `Settlement complete: merchant=${merchantAmount}, fee=${feeAmount}`,
+    );
+    return { merchantAmount, feeAmount };
+  }
+
+  /**
+   * Phase 2: Confirm settlement by linking the HTLC lock ID.
+   * Called after the relay has locked merchant_amount in HTLC.
+   */
+  async confirmSettlement(
+    hashlock: string,
+    htlcLockId: string,
+  ): Promise<string> {
+    this.logger.log(
+      `Confirming settlement: hashlock=${hashlock}, htlcLockId=${htlcLockId}`,
+    );
+
+    const relayPublicKey = this.requireKeypair().publicKey();
+
+    const args = [
+      new StellarSdk.Address(relayPublicKey).toScVal(),
+      StellarSdk.nativeToScVal(Buffer.from(hashlock, 'hex'), {
+        type: 'bytes',
+      }),
+      StellarSdk.nativeToScVal(Buffer.from(htlcLockId, 'hex'), {
+        type: 'bytes',
+      }),
+    ];
+
+    const result = await this.invokeSorobanContract(
+      this.settlementContractId,
+      'confirm',
+      args,
+    );
+
+    return this.extractTxHash(result);
+  }
+
+  /**
+   * Query a settlement by hashlock.
+   */
+  async getSettlement(hashlock: string): Promise<SettlementInfo> {
+    this.logger.debug(`Fetching settlement: ${hashlock}`);
+
+    const args = [
+      StellarSdk.nativeToScVal(Buffer.from(hashlock, 'hex'), {
+        type: 'bytes',
+      }),
+    ];
+
+    const result = await this.invokeSorobanContract(
+      this.settlementContractId,
+      'get_settlement',
+      args,
+    );
+
+    const success =
+      result as StellarSdk.rpc.Api.GetSuccessfulTransactionResponse;
+    if (!success.returnValue) {
+      throw new BadRequestException('Settlement not found');
+    }
+
+    const native = StellarSdk.scValToNative(success.returnValue) as Record<
+      string,
+      unknown
+    >;
+
+    return {
+      sourceAsset: String(native.source_asset),
+      sourceAmount: BigInt(native.source_amount as string | number | bigint),
+      destAsset: String(native.dest_asset),
+      destAmount: BigInt(native.dest_amount as string | number | bigint),
+      merchant: String(native.merchant),
+      merchantAmount: BigInt(
+        native.merchant_amount as string | number | bigint,
+      ),
+      feeAmount: BigInt(native.fee_amount as string | number | bigint),
+      hashlock: Buffer.from(native.hashlock as Uint8Array).toString('hex'),
+      timelock: Number(native.timelock),
+      htlcLockId: Buffer.from(native.htlc_lock_id as Uint8Array).toString(
+        'hex',
+      ),
+      confirmed: Boolean(native.confirmed),
+    };
+  }
+
   // ── Fee collector ──────────────────────────────────────────────────────────
 
   async deductFee(
@@ -395,15 +549,18 @@ export class StellarService implements OnModuleDestroy {
 
           for (const event of response.events) {
             try {
-              const topics = event.topic.map((t: StellarSdk.xdr.ScVal) =>
-                StellarSdk.scValToNative(t),
-              ) as string[];
+              const topics = event.topic.map(
+                (t: StellarSdk.xdr.ScVal): string =>
+                  String(StellarSdk.scValToNative(t)),
+              );
               const eventName = topics[0];
 
               if (
                 eventName === 'Locked' ||
                 eventName === 'Withdrawn' ||
-                eventName === 'Refunded'
+                eventName === 'Refunded' ||
+                eventName === 'Settled' ||
+                eventName === 'Confirmed'
               ) {
                 const value = StellarSdk.scValToNative(event.value) as Record<
                   string,
@@ -558,7 +715,7 @@ export class StellarService implements OnModuleDestroy {
     const success =
       result as StellarSdk.rpc.Api.GetSuccessfulTransactionResponse;
     if (!success.returnValue) return '';
-    const raw = StellarSdk.scValToNative(success.returnValue);
+    const raw: unknown = StellarSdk.scValToNative(success.returnValue);
     if (Buffer.isBuffer(raw) || raw instanceof Uint8Array) {
       return Buffer.from(raw).toString('hex');
     }

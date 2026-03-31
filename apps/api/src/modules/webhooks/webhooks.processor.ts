@@ -40,11 +40,12 @@ export class WebhooksProcessor extends WorkerHost {
       eventId,
       merchantId,
       eventType,
-      payload,
       webhookUrl,
       webhookSecret,
       attempt,
     } = job.data;
+
+    const payload: WebhookJobData['payload'] = job.data.payload;
 
     this.logger.log(
       `Processing webhook delivery: ${eventId} (attempt ${attempt}/${MAX_ATTEMPTS})`,

@@ -73,23 +73,44 @@ export class RelayProcessor extends WorkerHost {
     }
 
     try {
-      const stellarTxHash = await this.stellarService.lockHTLC({
-        sender: 'useroutr_vault',
+      const relayPublicKey = process.env.STELLAR_RELAY_PUBLIC_KEY || '';
+      const destAmount = BigInt(Math.floor(Number(payment.destAmount)));
+      const hashlock = payment.hashlock!;
+      // Stellar timelock = 12h (half of source chain's 24h)
+      const stellarTimelock = Math.floor(Date.now() / 1000) + 43_200;
+
+      // Phase 1: Settlement — fee deduction, relay receives merchantAmount
+      const { merchantAmount } = await this.stellarService.settle({
+        sourceAsset: payment.sourceAsset ?? relayPublicKey,
+        sourceAmount: BigInt(Math.floor(Number(payment.sourceAmount))),
+        destAsset: payment.destAsset,
+        destAmount,
+        merchant: payment.destAddress,
+        hashlock,
+        timelock: stellarTimelock,
+      });
+
+      // Phase 2: Lock merchantAmount in HTLC for merchant
+      const stellarLockId = await this.stellarService.lockHTLC({
+        sender: relayPublicKey,
         receiver: payment.destAddress,
         token: payment.destAsset,
-        amount: BigInt(Math.floor(Number(payment.destAmount))),
-        hashlock: payment.hashlock!,
-        timelock: Math.floor(Date.now() / 1000) + 3600,
+        amount: merchantAmount,
+        hashlock,
+        timelock: stellarTimelock,
       });
+
+      // Phase 3: Confirm settlement with HTLC lock ID
+      await this.stellarService.confirmSettlement(hashlock, stellarLockId);
 
       await this.paymentsService.updateStatus(
         payment.id,
         PaymentStatus.STELLAR_LOCKED,
-        { stellarLockId: payment.id, stellarTxHash },
+        { stellarLockId, stellarTxHash: stellarLockId },
       );
 
       this.logger.log(
-        `Stellar lock completed for payment ${payment.id}, tx: ${stellarTxHash}`,
+        `Stellar settlement + lock completed for payment ${payment.id}, lockId: ${stellarLockId}`,
       );
 
       if (payment.htlcSecret) {
@@ -102,7 +123,7 @@ export class RelayProcessor extends WorkerHost {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(
-        `Stellar lock failed for payment ${data.paymentId}: ${msg}`,
+        `Stellar settlement/lock failed for payment ${data.paymentId}: ${msg}`,
       );
       await this.paymentsService.updateStatus(payment.id, PaymentStatus.FAILED);
     }

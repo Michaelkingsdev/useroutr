@@ -1,6 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventsGateway } from './events.gateway';
 
+interface WebhookEventData {
+  id: string;
+  eventType: string;
+  status: string;
+  attempts: number;
+  createdAt: Date | string;
+}
+
 /**
  * Events Service
  * Handles real-time event emission to connected WebSocket clients
@@ -50,9 +58,7 @@ export class EventsService {
       );
 
       // Emit to merchant dashboard (listens on merchant:{merchantId} room)
-      this.gateway.server
-        .to(`merchant:${merchantId}`)
-        .emit('message', payload);
+      this.gateway.server.to(`merchant:${merchantId}`).emit('message', payload);
 
       // Emit to specific payment subscribers (checkout listens on payment:{paymentId} room)
       this.gateway.server.to(`payment:${paymentId}`).emit('message', payload);
@@ -72,7 +78,7 @@ export class EventsService {
    */
   emitWebhookDelivery(
     merchantId: string,
-    webhookEvent: any,
+    webhookEvent: WebhookEventData,
   ): void {
     try {
       const payload = {
@@ -91,9 +97,7 @@ export class EventsService {
       );
 
       // Only dashboard cares about webhook delivery logs
-      this.gateway.server
-        .to(`merchant:${merchantId}`)
-        .emit('message', payload);
+      this.gateway.server.to(`merchant:${merchantId}`).emit('message', payload);
     } catch (error) {
       this.logger.error(
         `Failed to emit webhook delivery: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -138,9 +142,7 @@ export class EventsService {
       );
 
       // Emit to merchant dashboard
-      this.gateway.server
-        .to(`merchant:${merchantId}`)
-        .emit('message', payload);
+      this.gateway.server.to(`merchant:${merchantId}`).emit('message', payload);
 
       // Emit to payout subscribers if needed
       this.gateway.server.to(`payout:${payoutId}`).emit('message', payload);
@@ -192,9 +194,7 @@ export class EventsService {
       );
 
       // Only merchant dashboard cares about this notification
-      this.gateway.server
-        .to(`merchant:${merchantId}`)
-        .emit('message', payload);
+      this.gateway.server.to(`merchant:${merchantId}`).emit('message', payload);
     } catch (error) {
       this.logger.error(
         `Failed to emit link paid notification: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -235,9 +235,7 @@ export class EventsService {
         `Emitting invoice:paid for invoice ${invoiceId} to merchant ${merchantId}`,
       );
 
-      this.gateway.server
-        .to(`merchant:${merchantId}`)
-        .emit('message', payload);
+      this.gateway.server.to(`merchant:${merchantId}`).emit('message', payload);
     } catch (error) {
       this.logger.error(
         `Failed to emit invoice paid notification: ${error instanceof Error ? error.message : 'Unknown error'}`,

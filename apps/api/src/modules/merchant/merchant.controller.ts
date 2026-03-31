@@ -86,7 +86,11 @@ export class MerchantController {
     @Param('id') memberId: string,
     @Body() dto: UpdateMemberRoleDto,
   ) {
-    return this.merchantService.updateMemberRole(merchantId, memberId, dto.role);
+    return this.merchantService.updateMemberRole(
+      merchantId,
+      memberId,
+      dto.role,
+    );
   }
 
   @Delete('me/team/:id')

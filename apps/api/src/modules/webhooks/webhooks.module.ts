@@ -7,7 +7,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { WEBHOOK_QUEUE_NAME } from './webhooks.constants';
 
 @Module({
-  imports: [PrismaModule, BullModule.registerQueue({ name: WEBHOOK_QUEUE_NAME })],
+  imports: [
+    PrismaModule,
+    BullModule.registerQueue({ name: WEBHOOK_QUEUE_NAME }),
+  ],
   providers: [WebhooksService, WebhooksProcessor],
   controllers: [WebhooksController],
   exports: [WebhooksService],

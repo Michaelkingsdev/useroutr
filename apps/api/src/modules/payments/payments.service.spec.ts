@@ -1,7 +1,28 @@
-import { PaymentsService } from './payments.service.js';
+import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
+import { PaymentsService } from './payments.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { EventsService } from '../events/events/events.service';
+import { QuotesService } from '../quotes/quotes.service';
+import { WebhooksService } from '../webhooks/webhooks.service';
+import { StellarService } from '../stellar/stellar.service';
+
+interface MockPayment {
+  id: string;
+  merchantId: string;
+  status: string;
+  sourceAmount: string;
+  sourceAsset: string;
+  metadata: Record<string, unknown>;
+  completedAt: Date | null;
+  merchant: { id: string; name: string; webhookUrl: string };
+  quote: { expiresAt: Date };
+}
 
 describe('PaymentsService', () => {
-  const paymentRecord = {
+  let service: PaymentsService;
+
+  const paymentRecord: MockPayment = {
     id: 'pay_123',
     merchantId: 'merchant_123',
     status: 'PENDING',
@@ -48,21 +69,17 @@ describe('PaymentsService', () => {
 
   const configService = {
     get: jest.fn((key: string) => {
-      if (key === 'STRIPE_WEBHOOK_SECRET') {
-        return 'whsec_test';
-      }
-
+      if (key === 'STRIPE_WEBHOOK_SECRET') return 'whsec_test';
       return undefined;
     }),
   };
 
-  let service: PaymentsService;
   let stripeMock: {
     paymentIntents: { create: jest.Mock };
     webhooks: { constructEvent: jest.Mock };
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
 
     prisma.payment.findUnique.mockResolvedValue(paymentRecord);
@@ -70,14 +87,20 @@ describe('PaymentsService', () => {
     prisma.webhookEvent.create.mockResolvedValue({});
     prisma.$transaction.mockResolvedValue(undefined);
 
-    service = new PaymentsService(
-      prisma as never,
-      eventsService as never,
-      quotesService as never,
-      webhooksService as never,
-      stellarService as never,
-      configService as never,
-    );
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        PaymentsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: EventsService, useValue: eventsService },
+        { provide: QuotesService, useValue: quotesService },
+        { provide: WebhooksService, useValue: webhooksService },
+        { provide: StellarService, useValue: stellarService },
+        { provide: ConfigService, useValue: configService },
+      ],
+    }).compile();
+
+    service = module.get<PaymentsService>(PaymentsService);
+
     stripeMock = {
       paymentIntents: {
         create: jest.fn().mockResolvedValue({
@@ -136,16 +159,14 @@ describe('PaymentsService', () => {
 
     expect(prisma.payment.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          status: 'COMPLETED',
-        }),
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        data: expect.objectContaining({ status: 'COMPLETED' }),
       }),
     );
     expect(prisma.webhookEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          eventType: 'payment.completed',
-        }),
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        data: expect.objectContaining({ eventType: 'payment.completed' }),
       }),
     );
   });

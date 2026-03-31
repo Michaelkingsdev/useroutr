@@ -4,10 +4,14 @@ import {
   GoneException,
   BadRequestException,
 } from '@nestjs/common';
-import * as QRCode from 'qrcode';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateLinkDto } from './dto/create-link.dto.js';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const QRCode = require('qrcode') as {
+  toDataURL(text: string): Promise<string>;
+};
 
 const BASE_URL = process.env.PAYMENT_LINK_BASE_URL ?? 'https://pay.tavvio.io';
 const SHORT_CODE_LENGTH = 8;

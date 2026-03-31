@@ -275,6 +275,10 @@ model WebhookEvent {
   createdAt     DateTime      @default(now())
   merchant      Merchant      @relation(fields: [merchantId], references: [id])
   payment       Payment?      @relation(fields: [paymentId], references: [id])
+
+  @@index([merchantId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 enum WebhookStatus {

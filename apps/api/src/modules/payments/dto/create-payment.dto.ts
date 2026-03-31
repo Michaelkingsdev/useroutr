@@ -3,7 +3,6 @@ import {
   IsString,
   IsOptional,
   IsArray,
-  IsEmail,
   IsObject,
   IsUrl,
 } from 'class-validator';
@@ -36,7 +35,7 @@ export class CreatePaymentDto {
 
   @IsObject()
   @IsOptional()
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 
   @IsUrl()
   @IsOptional()
